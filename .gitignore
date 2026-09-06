@@ -1,0 +1,23 @@
+# Environment variables (contains secrets)
+backend/.env
+.env
+
+# Python
+backend/venv/
+**/__pycache__/
+*.pyc
+
+# Node
+frontend/node_modules/
+
+# Databases (local data, not code)
+backend/*.db
+
+# Generated vector store data (rebuilt automatically from knowledge_base/)
+backend/data/chroma/
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store

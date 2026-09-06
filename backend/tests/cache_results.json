@@ -1,0 +1,50 @@
+{
+  "I suddenly have crushing chest pain radiating to my arm|||0.3": {
+    "tier": "emergency",
+    "reply": "This sounds like a possible heart attack \u2014 call your local emergency number right away or have someone get you to the nearest emergency department immediately. Do not drive yourself; wait for emergency responders."
+  },
+  "I don't feel well today|||0.3": {
+    "tier": "self_care",
+    "reply": "Can you tell me a bit more\u2014what specific symptoms you have and how long they've been going on?"
+  },
+  "I have a small paper cut on my finger|||0.3": {
+    "tier": "self_care",
+    "reply": "That should heal on its own. Keep it clean\u2014wash gently with soap and water, then pat dry. Apply a thin layer of an over\u2011the\u2011counter antibiotic ointment and cover with a small adhesive bandage if it might get irritated. Watch for increasing redness, swelling, pus, or worsening pain; if those appear, have it checked."
+  },
+  "I've been feeling anxious about work lately|||0.3": {
+    "tier": "self_care",
+    "reply": "It sounds stressful to have work weighing on you. Try setting short breaks, practicing deep\u2011breathing or a quick walk when anxiety spikes, and jotting down specific worries to see if any are within your control. If the anxiety feels persistent, overwhelming, or starts affecting sleep or daily functioning, reaching out to a mental\u2011health professional or your primary care doctor can provide tailored support."
+  },
+  "I suddenly have crushing chest pain radiating to my arm|||0.7": {
+    "tier": "emergency",
+    "reply": "This sounds like a possible heart attack; call your local emergency number right away and have someone stay with you until help arrives. Do not drive yourself."
+  },
+  "I don't feel well today|||0.7": {
+    "tier": "self_care",
+    "reply": "Can you tell me more\u2014what specific symptoms you\u2019re experiencing and how long you\u2019ve felt unwell?"
+  },
+  "I have a small paper cut on my finger|||0.7": {
+    "tier": "self_care",
+    "reply": "That should heal on its own. Keep it clean\u2014wash gently with soap and water, then apply a thin layer of antibiotic ointment and cover with a small bandage if needed. Watch for increasing redness, swelling, or pus; if those appear, consider seeing a clinician."
+  },
+  "I've been feeling anxious about work lately|||0.7": {
+    "tier": "self_care",
+    "reply": "It sounds like work is weighing on you, which can be tough. Try setting aside short breaks for deep breathing or a quick walk, and see if talking it over with a trusted colleague or friend helps you gain perspective. If the anxiety lingers or starts affecting sleep or daily functioning, consider reaching out to a mental\u2011health professional for extra support."
+  },
+  "I suddenly have crushing chest pain radiating to my arm|||1.0": {
+    "tier": "emergency",
+    "reply": "This sounds like a possible heart issue that requires immediate medical attention\u2014please call your local emergency number right away or have someone take you to the nearest emergency department. Do not drive yourself; get help now."
+  },
+  "I don't feel well today|||1.0": {
+    "tier": "self_care",
+    "reply": "Can you share any specific symptoms\u2014like fever, pain, nausea, or fatigue\u2014and how long you've been feeling unwell?"
+  },
+  "I have a small paper cut on my finger|||1.0": {
+    "tier": "self_care",
+    "reply": "Did you clean the cut and is the bleeding stopped?"
+  },
+  "I've been feeling anxious about work lately|||1.0": {
+    "tier": "self_care",
+    "reply": "It sounds stressful; taking short breaks, setting clear boundaries, and practicing brief breathing exercises can help calm the nerves during the day. If the anxiety continues or starts affecting sleep, concentration, or mood, consider talking to a mental\u2011health professional for additional strategies."
+  }
+}
