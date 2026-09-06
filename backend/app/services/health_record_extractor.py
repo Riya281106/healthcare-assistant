@@ -148,6 +148,10 @@ def extract_health_record(
 
         "SYMPTOM",
 
+        "URGENT",
+
+        "SELF_CARE",
+
         "MEDICINE",
 
         "REPORT",
@@ -166,7 +170,7 @@ def extract_health_record(
     # SYMPTOM RECORD
     # ==========================================
 
-    if intent == "SYMPTOM":
+    if intent in ("SYMPTOM", "URGENT", "SELF_CARE"):
 
         symptoms = extract_symptoms(
             user_message
@@ -224,7 +228,7 @@ def extract_health_record(
 
         return {
 
-            "record_type": "SYMPTOM",
+            "record_type": intent,
 
             "record_content": content
 

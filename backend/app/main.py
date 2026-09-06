@@ -5,7 +5,10 @@ import traceback
 from app.core.database import (
     init_db,
     get_recent_messages,
-    save_message
+    save_message,
+    save_health_record,
+    save_user_memory,
+    find_duplicate_memory
 )
 
 from app.schemas.chat_schema import ChatRequest
@@ -13,6 +16,9 @@ from app.schemas.chat_schema import ChatRequest
 from app.services.agents.orchestrator import orchestrate
 
 from app.api.routes.auth import router as auth_router
+
+from app.services.memory_extractor import extract_memories
+from app.services.health_record_extractor import extract_health_record
 
 
 # ==================================================
@@ -226,6 +232,50 @@ async def chat(request: ChatRequest):
             role="assistant",
             message=normalized_result["response"]
         )
+
+
+        # =============================================
+        # EXTRACT LONG TERM MEMORY
+        # =============================================
+
+        extracted_memories = extract_memories(
+            request.message
+        )
+
+        for memory in extracted_memories:
+
+            duplicate = find_duplicate_memory(
+                user_id=request.user_id,
+                memory_type=memory["memory_type"],
+                memory_content=memory["memory_content"]
+            )
+
+            if not duplicate:
+
+                save_user_memory(
+                    user_id=request.user_id,
+                    memory_type=memory["memory_type"],
+                    memory_content=memory["memory_content"]
+                )
+
+
+        # =============================================
+        # EXTRACT STRUCTURED HEALTH RECORD
+        # =============================================
+
+        health_record = extract_health_record(
+            user_message=request.message,
+            ai_response=normalized_result["response"],
+            intent=normalized_result["intent"]
+        )
+
+        if health_record:
+
+            save_health_record(
+                user_id=request.user_id,
+                record_type=health_record["record_type"],
+                record_content=health_record["record_content"]
+            )
 
 
         print("\nFINAL RESPONSE:")
