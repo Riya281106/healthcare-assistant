@@ -1,7 +1,11 @@
 import os
+import re
+import json
+import hashlib
 
 from app.services.rag.vector_store import (
-    add_document,
+    add_documents_batch,
+    delete_by_source,
     get_document_count,
     clear_collection
 )
@@ -23,63 +27,201 @@ KNOWLEDGE_BASE_DIR = os.path.join(
     "knowledge_base"
 )
 
+# Manifest tracks a hash of each source file's content so re-indexing
+# only re-embeds files that actually changed, and reports what changed.
+MANIFEST_PATH = os.path.join(
+    BASE_DIR,
+    "data",
+    "kb_manifest.json"
+)
+
 
 # ---------------------------------------------------------
 # RAG CHUNKING SETTINGS
 # ---------------------------------------------------------
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 700       # target characters per chunk
+CHUNK_OVERLAP = 120    # characters of overlap between adjacent chunks
 
 
 # ---------------------------------------------------------
-# Split medical document into smaller chunks
+# Manifest helpers (change detection for re-indexing)
 # ---------------------------------------------------------
 
-def chunk_text(text: str):
+def _load_manifest():
 
+    if not os.path.exists(MANIFEST_PATH):
+        return {}
+
+    try:
+        with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_manifest(manifest: dict):
+
+    os.makedirs(os.path.dirname(MANIFEST_PATH), exist_ok=True)
+
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def _file_hash(text: str) -> str:
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------
+# Parse a knowledge-base document into (metadata, sections)
+#
+# Expected format:
+#
+#   TITLE: ...
+#   CATEGORY: ...
+#   DOC_TYPE: ...
+#   LAST_UPDATED: ...
+#   ===
+#   ## Section Heading
+#   body text...
+#
+#   ## Another Section
+#   body text...
+#
+# Files that don't follow this format still load, they just fall
+# back to filename-derived metadata and treat the whole file as one
+# section, so ingestion never hard-fails on an unexpected document.
+# ---------------------------------------------------------
+
+def parse_document(filename: str, raw_text: str):
+
+    metadata = {
+        "title": filename,
+        "category": "General",
+        "doc_type": "patient_education",
+        "last_updated": None
+    }
+
+    body = raw_text
+
+    if "===" in raw_text:
+
+        header_block, _, body = raw_text.partition("===")
+
+        for line in header_block.splitlines():
+
+            line = line.strip()
+
+            if not line or ":" not in line:
+                continue
+
+            key, _, value = line.partition(":")
+            key = key.strip().upper()
+            value = value.strip()
+
+            if key == "TITLE":
+                metadata["title"] = value
+            elif key == "CATEGORY":
+                metadata["category"] = value
+            elif key == "DOC_TYPE":
+                metadata["doc_type"] = value
+            elif key == "LAST_UPDATED":
+                metadata["last_updated"] = value
+
+    # Split remaining body into sections on "## Heading" lines.
     sections = []
-    current_section = []
+    current_heading = "General"
+    current_lines = []
 
-    for line in text.splitlines():
+    for line in body.splitlines():
 
-        line = line.strip()
+        heading_match = re.match(r"^\s*##\s+(.*)", line)
 
-        if not line:
-            continue
+        if heading_match:
 
-        # Medical section headings
-        if line.upper() in {
-            "HEADACHE",
-            "FEVER",
-            "PARACETAMOL",
-            "HYPERTENSION"
-        }:
-
-            if current_section:
+            if current_lines:
                 sections.append(
-                    "\n".join(current_section)
+                    (current_heading, "\n".join(current_lines).strip())
                 )
 
-            current_section = [line]
+            current_heading = heading_match.group(1).strip()
+            current_lines = []
 
         else:
+            current_lines.append(line)
 
-            current_section.append(line)
-
-    # Add final section
-    if current_section:
+    if current_lines:
         sections.append(
-            "\n".join(current_section)
+            (current_heading, "\n".join(current_lines).strip())
         )
 
-    return sections
+    sections = [(h, b) for h, b in sections if b.strip()]
+
+    if not sections:
+        sections = [("General", body.strip())]
+
+    return metadata, sections
+
 
 # ---------------------------------------------------------
-# Load text files into ChromaDB
+# Split a section's text into chunks of roughly CHUNK_SIZE
+# characters, breaking on paragraph/sentence boundaries where
+# possible and overlapping chunks so context isn't lost at the
+# boundary.
 # ---------------------------------------------------------
 
-def load_knowledge_base():
+def split_into_chunks(text: str):
+
+    text = text.strip()
+
+    if len(text) <= CHUNK_SIZE:
+        return [text]
+
+    # Prefer splitting on paragraph breaks first.
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+
+    chunks = []
+    current = ""
+
+    for paragraph in paragraphs:
+
+        candidate = (current + "\n\n" + paragraph).strip() if current else paragraph
+
+        if len(candidate) <= CHUNK_SIZE:
+            current = candidate
+            continue
+
+        if current:
+            chunks.append(current)
+
+        if len(paragraph) <= CHUNK_SIZE:
+            current = paragraph
+        else:
+            # Paragraph itself is too long -- fall back to a sliding
+            # character window with overlap.
+            start = 0
+            while start < len(paragraph):
+                end = start + CHUNK_SIZE
+                chunks.append(paragraph[start:end])
+                start = end - CHUNK_OVERLAP
+            current = ""
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+# ---------------------------------------------------------
+# Load (or re-load) the knowledge base into ChromaDB.
+#
+# force=True re-embeds every file regardless of whether its
+# content hash changed. Otherwise, unchanged files are skipped so
+# re-indexing is cheap and doesn't create duplicate chunks.
+# ---------------------------------------------------------
+
+def load_knowledge_base(force: bool = False):
 
     if not os.path.exists(KNOWLEDGE_BASE_DIR):
 
@@ -87,92 +229,99 @@ def load_knowledge_base():
             f"Knowledge base not found: {KNOWLEDGE_BASE_DIR}"
         )
 
-    files_loaded = 0
+    manifest = _load_manifest()
+    new_manifest = {}
+
+    files_processed = 0
+    files_skipped = 0
     chunks_loaded = 0
 
-    for filename in os.listdir(KNOWLEDGE_BASE_DIR):
+    filenames = sorted(
+        f for f in os.listdir(KNOWLEDGE_BASE_DIR)
+        if f.lower().endswith(".txt")
+    )
 
-        if not filename.lower().endswith(".txt"):
+    for filename in filenames:
+
+        file_path = os.path.join(KNOWLEDGE_BASE_DIR, filename)
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw_text = f.read()
+
+        if not raw_text.strip():
             continue
 
-        file_path = os.path.join(
-            KNOWLEDGE_BASE_DIR,
-            filename
-        )
+        content_hash = _file_hash(raw_text)
+        new_manifest[filename] = content_hash
 
-        with open(
-            file_path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-
-            text = file.read()
-
-        if not text.strip():
+        if not force and manifest.get(filename) == content_hash:
+            files_skipped += 1
             continue
 
-        # -------------------------------------------------
-        # Split document into smaller chunks
-        # -------------------------------------------------
+        metadata, sections = parse_document(filename, raw_text)
 
-        chunks = chunk_text(text)
+        # Re-indexing: drop any previously stored chunks for this file
+        # first, so a shrunk or restructured document doesn't leave
+        # orphaned stale chunks behind.
+        delete_by_source(filename)
 
-        print(
-            f"\nProcessing: {filename}"
-        )
+        document_ids = []
+        texts = []
+        metadatas = []
+        chunk_index = 0
 
-        print(
-            f"Chunks created: {len(chunks)}"
-        )
+        for section_heading, section_body in sections:
 
-        # -------------------------------------------------
-        # Store every chunk separately
-        # -------------------------------------------------
+            for chunk_text in split_into_chunks(section_body):
 
-        for index, chunk in enumerate(chunks):
+                chunk_id = f"{filename}::chunk::{chunk_index}"
 
-            document_id = f"{filename}_chunk_{index}"
-
-            add_document(
-                document_id=document_id,
-                text=chunk,
-                metadata={
+                document_ids.append(chunk_id)
+                texts.append(chunk_text)
+                metadatas.append({
                     "source": filename,
-                    "type": "medical_knowledge",
-                    "chunk_index": index
-                }
-            )
+                    "title": metadata["title"],
+                    "category": metadata["category"],
+                    "doc_type": metadata["doc_type"],
+                    "last_updated": metadata["last_updated"] or "",
+                    "section": section_heading,
+                    "chunk_index": chunk_index
+                })
 
-            chunks_loaded += 1
+                chunk_index += 1
 
-        files_loaded += 1
+        add_documents_batch(document_ids, texts, metadatas)
+
+        print(f"Indexed {filename}: {chunk_index} chunks")
+
+        chunks_loaded += chunk_index
+        files_processed += 1
+
+    _save_manifest(new_manifest)
 
     print(
-        f"\nTotal files processed: {files_loaded}"
+        f"\nKnowledge base ingestion complete. "
+        f"Files processed: {files_processed}, "
+        f"files unchanged/skipped: {files_skipped}, "
+        f"chunks written: {chunks_loaded}"
     )
 
-    print(
-        f"Total chunks added: {chunks_loaded}"
-    )
-
-    return files_loaded
+    return {
+        "files_processed": files_processed,
+        "files_skipped": files_skipped,
+        "chunks_loaded": chunks_loaded,
+        "total_chunks": get_document_count()
+    }
 
 
 # ---------------------------------------------------------
-# Run loader
+# Run loader directly: python -m app.services.rag.knowledge_loader
 # ---------------------------------------------------------
 
 if __name__ == "__main__":
 
     clear_collection()
 
-    count = load_knowledge_base()
+    result = load_knowledge_base(force=True)
 
-    print(
-        f"\nKnowledge-base files processed: {count}"
-    )
-
-    print(
-        f"Total documents in ChromaDB: "
-        f"{get_document_count()}"
-    )
+    print(f"\nTotal documents in ChromaDB: {result['total_chunks']}")

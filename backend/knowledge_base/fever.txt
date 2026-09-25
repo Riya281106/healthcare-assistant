@@ -1,0 +1,16 @@
+TITLE: Understanding Fever in Adults
+CATEGORY: Symptom Guidance
+DOC_TYPE: patient_education
+LAST_UPDATED: 2026-01-15
+===
+## Overview
+Fever is a temporary rise in body temperature, usually a sign that the body's immune system is responding to an infection. A normal body temperature is roughly 36.5-37.5°C (97.7-99.5°F); a reading at or above 38°C (100.4°F) is generally considered a fever in adults.
+
+## Common Symptoms
+Fever is often accompanied by chills, sweating, headache, muscle aches, weakness, loss of appetite, and general fatigue. These accompanying symptoms, rather than the exact number on a thermometer, are usually the more important thing to pay attention to.
+
+## Self-Care Measures
+Rest, drinking plenty of fluids, wearing light clothing, and keeping the room at a comfortable temperature can help the body manage a mild fever. Over-the-counter fever reducers may be used according to label instructions if the fever is causing significant discomfort.
+
+## When to Seek Medical Attention
+Adults should seek medical care for a fever above 39.4°C (103°F), a fever lasting more than three days, or fever accompanied by a severe headache, stiff neck, confusion, difficulty breathing, chest pain, persistent vomiting, a rash, or signs of dehydration. People with weakened immune systems, chronic illness, or who are pregnant should have a lower threshold for contacting a healthcare professional about any fever.

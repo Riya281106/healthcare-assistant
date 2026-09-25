@@ -1,0 +1,16 @@
+TITLE: Safe Use of Common Over-the-Counter Pain and Fever Medication
+CATEGORY: Medication Guidance
+DOC_TYPE: patient_education
+LAST_UPDATED: 2026-01-15
+===
+## Paracetamol (Acetaminophen)
+Paracetamol is commonly used to relieve mild to moderate pain and reduce fever. It is generally considered gentle on the stomach compared to some alternatives, but exceeding the recommended dose can cause serious liver damage. The maximum dose, timing between doses, and suitability depend on age, weight, liver health, and other medications being taken, so label instructions or professional guidance should always be followed.
+
+## Ibuprofen and Other NSAIDs
+Ibuprofen and similar non-steroidal anti-inflammatory drugs (NSAIDs) relieve pain, reduce fever, and lower inflammation. They can irritate the stomach lining and are generally taken with food. People with a history of stomach ulcers, kidney problems, certain heart conditions, or who are on blood-thinning medication should check with a healthcare professional before use.
+
+## General Safety Principles
+Always follow the dose and timing on the label or as advised by a pharmacist or doctor. Do not combine multiple products containing the same active ingredient, as this can lead to accidental overdose. Be cautious about interactions with other medications, alcohol, and existing health conditions.
+
+## When to Seek Medical Advice
+A pharmacist or doctor should be consulted when there is uncertainty about dosage, before giving medication to children, during pregnancy or breastfeeding, when taking other medications, or if pain or fever persists despite appropriate use. Signs of an adverse reaction, such as rash, swelling, difficulty breathing, or severe stomach pain, warrant prompt medical attention.

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import traceback
 
@@ -8,7 +8,8 @@ from app.core.database import (
     save_message,
     save_health_record,
     save_user_memory,
-    find_duplicate_memory
+    find_duplicate_memory,
+    get_symptom_history
 )
 
 from app.schemas.chat_schema import ChatRequest
@@ -16,11 +17,15 @@ from app.schemas.chat_schema import ChatRequest
 from app.services.agents.orchestrator import orchestrate
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.profile import router as profile_router
+from app.api.routes.conversation import router as conversation_router
+from app.api.routes.reminder import router as reminder_router
+from app.api.routes.summary import router as summary_router
+from app.api.routes.rag import router as rag_router
 
 from app.services.memory_extractor import extract_memories
 from app.services.health_record_extractor import extract_health_record
-
-
+from app.services.conversation_summary_service import update_conversation_summary_if_needed
 # ==================================================
 # FASTAPI APPLICATION
 # ==================================================
@@ -53,7 +58,11 @@ app.add_middleware(
 # ==================================================
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-
+app.include_router(profile_router)
+app.include_router(conversation_router)
+app.include_router(reminder_router)
+app.include_router(summary_router)
+app.include_router(rag_router)
 
 # ==================================================
 # STARTUP EVENT
@@ -69,6 +78,24 @@ def startup_event():
     init_db()
 
     print("DATABASE INITIALIZED")
+
+    try:
+
+        from app.services.rag.knowledge_loader import load_knowledge_base
+
+        rag_result = load_knowledge_base(force=False)
+
+        print(
+            f"RAG KNOWLEDGE BASE READY -- "
+            f"{rag_result['total_chunks']} chunks indexed "
+            f"({rag_result['files_processed']} file(s) (re)embedded, "
+            f"{rag_result['files_skipped']} unchanged)"
+        )
+
+    except Exception as e:
+
+        print(f"WARNING: RAG knowledge base failed to load on startup: {e}")
+
     print("BACKEND READY")
 
 
@@ -90,7 +117,7 @@ def root():
 # ==================================================
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
     try:
 
@@ -146,7 +173,8 @@ async def chat(request: ChatRequest):
                 "urgency_tier": "normal",
                 "agent": "GENERAL_AGENT",
                 "next_action": "GENERAL_AGENT",
-                "rag_used": False
+                "rag_used": False,
+                "sources": []
             }
 
 
@@ -158,7 +186,8 @@ async def chat(request: ChatRequest):
                 "urgency_tier": "normal",
                 "agent": "GENERAL_AGENT",
                 "next_action": "GENERAL_AGENT",
-                "rag_used": False
+                "rag_used": False,
+                "sources": []
             }
 
 
@@ -170,7 +199,8 @@ async def chat(request: ChatRequest):
                 "urgency_tier": "normal",
                 "agent": "GENERAL_AGENT",
                 "next_action": "GENERAL_AGENT",
-                "rag_used": False
+                "rag_used": False,
+                "sources": []
             }
 
 
@@ -208,6 +238,11 @@ async def chat(request: ChatRequest):
             "rag_used": result.get(
                 "rag_used",
                 False
+            ),
+
+            "sources": result.get(
+                "sources",
+                []
             )
         }
 
@@ -274,9 +309,21 @@ async def chat(request: ChatRequest):
             save_health_record(
                 user_id=request.user_id,
                 record_type=health_record["record_type"],
-                record_content=health_record["record_content"]
+                record_content=health_record["record_content"],
+                symptom_name=health_record.get("symptom_name"),
+                severity=health_record.get("severity"),
+                duration_text=health_record.get("duration_text")
             )
 
+        # =============================================
+        # UPDATE AUTO CONVERSATION SUMMARY (non-blocking)
+        # =============================================
+
+        background_tasks.add_task(
+            update_conversation_summary_if_needed,
+            request.user_id,
+            normalized_result["intent"]
+        )
 
         print("\nFINAL RESPONSE:")
         print(normalized_result)
@@ -299,6 +346,70 @@ async def chat(request: ChatRequest):
 
         traceback.print_exc()
 
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+# ==================================================
+# HEALTH RECORDS LIST API
+# ==================================================
+
+@app.get("/api/health-records")
+def health_records_list(user_id: str):
+
+    try:
+
+        from app.core.database import get_health_records
+
+        records = get_health_records(
+            user_id=user_id,
+            limit=100
+        )
+
+        return {
+            "records": records
+        }
+
+
+    except Exception as e:
+
+        print("HEALTH RECORDS API ERROR:", str(e))
+
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+# ==================================================
+# SYMPTOM HISTORY API (Symptom Tracker / Health Journal)
+# ==================================================
+
+@app.get("/api/symptoms")
+def symptom_history(user_id: str):
+
+    try:
+
+        records = get_symptom_history(
+            user_id=user_id,
+            limit=200
+        )
+
+        return {
+            "symptoms": records
+        }
+
+
+    except Exception as e:
+
+        print("SYMPTOM HISTORY API ERROR:", str(e))
+
+        traceback.print_exc()
 
         raise HTTPException(
             status_code=500,

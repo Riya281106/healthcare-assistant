@@ -1,3 +1,12 @@
+# DEPRECATED -- moved here during the RAG audit (2026-01).
+#
+# This file defines its own /chat and /chat/history endpoints, but it
+# was never registered in app/main.py (no app.include_router call for
+# it anywhere). The actual, live chat endpoint is the one defined
+# inline in app/main.py. This file was dead code duplicating that
+# logic with a slightly different response shape (e.g. it never
+# returns "sources"). Kept here for reference only -- do not import.
+
 from fastapi import APIRouter, HTTPException
 import traceback
 

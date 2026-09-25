@@ -7,6 +7,13 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class RagSource(BaseModel):
+    title: str
+    category: str
+    section: str
+    relevance_score: Optional[float] = None
+
+
 class ChatResponse(BaseModel):
     response: str
     intent: str = "GENERAL"
@@ -14,6 +21,7 @@ class ChatResponse(BaseModel):
     agent: str = "GENERAL_LLM"
     next_action: str = "GENERAL_LLM"
     rag_used: bool = False
+    sources: List[RagSource] = []
 
 
 class HistoryResponse(BaseModel):

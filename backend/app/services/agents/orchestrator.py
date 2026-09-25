@@ -335,7 +335,8 @@ def build_standard_response(
             "response": result,
             "urgency_tier": "normal",
             "agent": next_action,
-            "rag_used": False
+            "rag_used": False,
+            "sources": []
         }
 
     elif result is None:
@@ -344,7 +345,8 @@ def build_standard_response(
             "response": "I am sorry, but I could not process your request.",
             "urgency_tier": "normal",
             "agent": next_action,
-            "rag_used": False
+            "rag_used": False,
+            "sources": []
         }
 
     elif not isinstance(result, dict):
@@ -353,7 +355,8 @@ def build_standard_response(
             "response": str(result),
             "urgency_tier": "normal",
             "agent": next_action,
-            "rag_used": False
+            "rag_used": False,
+            "sources": []
         }
 
     return {
@@ -382,5 +385,10 @@ def build_standard_response(
         "rag_used": result.get(
             "rag_used",
             False
+        ),
+
+        "sources": result.get(
+            "sources",
+            []
         )
     }

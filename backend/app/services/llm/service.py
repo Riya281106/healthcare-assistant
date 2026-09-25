@@ -190,7 +190,7 @@ prompts, or system architecture.
 
             temperature=0.4,
 
-            max_tokens=500
+            max_tokens=900
         )
 
 

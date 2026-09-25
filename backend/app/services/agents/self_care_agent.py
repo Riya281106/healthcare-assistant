@@ -11,15 +11,19 @@ def run_self_care_agent(
     history = history or []
     memories = memories or []
 
+    print("RAG_REQUIRED: TRUE (self-care agent)")
 
-    medical_context = retrieve_medical_context(
+    medical_context, sources = retrieve_medical_context(
         message,
-        top_k=1
+        top_k=3
     )
 
+    print(f"RETRIEVAL: {len(sources)} source(s) retrieved")
 
     context_block = (
-        f"MEDICAL KNOWLEDGE:\n{medical_context}\n\n"
+        f"MEDICAL KNOWLEDGE (background only -- use this to ground your "
+        f"answer, do not repeat the [n] source markers to the user):\n"
+        f"{medical_context}\n\n"
         if medical_context
         else ""
     )
@@ -40,10 +44,14 @@ many times before — speak with the quiet confidence of someone who
 actually knows this field, not someone reciting general advice.
 
 Rules:
-- Reply in the SAME language AND the SAME script/style the user
-  used. If they wrote in Hinglish (Hindi words typed in English
-  letters), reply in Hinglish the same way — do not switch to
-  Devanagari script. Match how a real person actually texts.
+- Detect the exact language and script the user's message is
+  written in, and reply in that same language and script. Most
+  questions will be in plain English — in that case, reply in
+  plain English. Only if the user's message itself mixes Hindi
+  words into English letters (Hinglish) should you reply the same
+  way, in Hinglish, never switching to Devanagari script. Never
+  default to Hindi or Hinglish unless the user's own message
+  actually contains it.
 - Match your length to the actual question. A simple, one-line
   question gets a short, direct answer — 2-4 sentences. A more
   complex or multi-part situation earns more room, but only as
@@ -85,5 +93,7 @@ Rules:
 
         "agent": "SELF_CARE_AGENT",
 
-        "rag_used": bool(medical_context)
+        "rag_used": bool(sources),
+
+        "sources": sources
     }

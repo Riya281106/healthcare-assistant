@@ -63,6 +63,23 @@ def add_document(
     )
 
 
+def add_documents_batch(
+    document_ids: list,
+    texts: list,
+    metadatas: list
+):
+    """Upsert many chunks in a single call (used by the ingestion pipeline)."""
+
+    if not document_ids:
+        return
+
+    collection.upsert(
+        ids=document_ids,
+        documents=texts,
+        metadatas=metadatas
+    )
+
+
 # ---------------------------------------------------------
 # Search medical knowledge
 # ---------------------------------------------------------
@@ -75,9 +92,16 @@ def search_documents(
     if not query or not query.strip():
         return []
 
+    # Guard against asking for more results than exist -- Chroma
+    # raises if n_results > the number of stored items.
+    available = get_document_count()
+
+    if available == 0:
+        return []
+
     results = collection.query(
         query_texts=[query],
-        n_results=top_k
+        n_results=min(top_k, available)
     )
 
     documents = results.get(
@@ -95,11 +119,22 @@ def search_documents(
         [[]]
     )[0]
 
+    ids = results.get(
+        "ids",
+        [[]]
+    )[0]
+
     retrieved = []
 
     for index, document in enumerate(documents):
 
         retrieved.append({
+            "chunk_id": (
+                ids[index]
+                if index < len(ids)
+                else None
+            ),
+
             "document": document,
 
             "metadata": (
@@ -119,12 +154,69 @@ def search_documents(
 
 
 # ---------------------------------------------------------
-# Get number of stored documents
+# Get number of stored chunks
 # ---------------------------------------------------------
 
 def get_document_count():
 
     return collection.count()
+
+
+# ---------------------------------------------------------
+# Delete every chunk that came from a given source file.
+# Used by the ingestion pipeline to re-index a changed file
+# without leaving stale chunks behind.
+# ---------------------------------------------------------
+
+def delete_by_source(source: str):
+
+    try:
+        collection.delete(
+            where={"source": source}
+        )
+    except Exception:
+        # Nothing to delete yet (e.g. first-time ingestion) -- safe to ignore.
+        pass
+
+
+# ---------------------------------------------------------
+# Aggregate stats: distinct source documents, chunk counts,
+# categories. Powers the Knowledge / Sources page.
+# ---------------------------------------------------------
+
+def get_source_stats():
+
+    if get_document_count() == 0:
+        return []
+
+    everything = collection.get(
+        include=["metadatas"]
+    )
+
+    metadatas = everything.get("metadatas", []) or []
+
+    by_source = {}
+
+    for meta in metadatas:
+
+        source = meta.get("source", "unknown")
+
+        if source not in by_source:
+            by_source[source] = {
+                "source": source,
+                "title": meta.get("title", source),
+                "category": meta.get("category", "General"),
+                "doc_type": meta.get("doc_type", "patient_education"),
+                "last_updated": meta.get("last_updated"),
+                "chunk_count": 0
+            }
+
+        by_source[source]["chunk_count"] += 1
+
+    return sorted(
+        by_source.values(),
+        key=lambda item: item["title"]
+    )
 
 
 # ---------------------------------------------------------

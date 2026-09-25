@@ -1,7 +1,6 @@
 import sqlite3
 import os
-
-
+import json
 # ==================================================
 # DATABASE PATH
 # ==================================================
@@ -65,6 +64,31 @@ def init_db():
         """
     )
 
+    # ----------------------------------------------
+    # USERS - PROFILE COLUMNS (added for Profile Management module)
+    # ----------------------------------------------
+    profile_columns = {
+        "age": "INTEGER",
+        "gender": "TEXT",
+        "date_of_birth": "TEXT",
+        "phone": "TEXT",
+        "blood_group": "TEXT",
+        "height_cm": "REAL",
+        "weight_kg": "REAL",
+        "allergies": "TEXT",
+        "chronic_conditions": "TEXT",
+        "emergency_contact_name": "TEXT",
+        "emergency_contact_phone": "TEXT",
+    }
+    for column_name, column_type in profile_columns.items():
+        try:
+            cursor.execute(
+                f"ALTER TABLE users ADD COLUMN {column_name} {column_type}"
+            )
+        except sqlite3.OperationalError:
+            # Column already exists - safe to ignore
+            pass
+
 
     # ----------------------------------------------
     # CHAT MESSAGES
@@ -109,6 +133,24 @@ def init_db():
         """
     )
 
+    # ----------------------------------------------
+    # HEALTH RECORDS - SYMPTOM TRACKER COLUMNS
+    # (added for Symptom Tracker / Health Journal module)
+    # ----------------------------------------------
+    health_record_columns = {
+        "symptom_name": "TEXT",
+        "severity": "TEXT",
+        "duration_text": "TEXT",
+    }
+    for column_name, column_type in health_record_columns.items():
+        try:
+            cursor.execute(
+                f"ALTER TABLE health_records ADD COLUMN {column_name} {column_type}"
+            )
+        except sqlite3.OperationalError:
+            # Column already exists - safe to ignore
+            pass
+
 
     # ----------------------------------------------
     # REMINDERS
@@ -134,6 +176,24 @@ def init_db():
         )
         """
     )
+
+
+    # ----------------------------------------------
+    # REMINDERS - NOTIFICATION COLUMNS (added for due-time notifications)
+    # ----------------------------------------------
+
+    reminder_notification_columns = {
+        "due_at": "TIMESTAMP",
+        "last_notified_at": "TIMESTAMP",
+    }
+
+    for column_name, column_type in reminder_notification_columns.items():
+        try:
+            cursor.execute(
+                f"ALTER TABLE reminders ADD COLUMN {column_name} {column_type}"
+            )
+        except sqlite3.OperationalError:
+            pass
 
 
     # ----------------------------------------------
@@ -179,6 +239,40 @@ def init_db():
             memory_content TEXT NOT NULL,
 
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+    # ----------------------------------------------
+    # CONVERSATION SUMMARIES (Auto Summary feature)
+    # ----------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_summaries (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            user_id TEXT NOT NULL UNIQUE,
+
+            overall_summary TEXT,
+
+            main_concerns TEXT,
+
+            symptoms TEXT,
+
+            medicines TEXT,
+
+            health_observations TEXT,
+
+            urgency_level TEXT,
+
+            recommended_actions TEXT,
+
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
@@ -390,7 +484,6 @@ def get_recent_messages(
 
     connection.close()
 
-
     messages = []
 
     for row in reversed(rows):
@@ -401,8 +494,27 @@ def get_recent_messages(
             "created_at": row["created_at"]
         })
 
-
     return messages
+
+
+def delete_user_messages(user_id: str):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "DELETE FROM chat_messages WHERE user_id = ?",
+        (user_id,)
+    )
+
+    deleted_count = cursor.rowcount
+
+    connection.commit()
+
+    connection.close()
+
+    return deleted_count
 
 
 # ==================================================
@@ -412,7 +524,10 @@ def get_recent_messages(
 def save_health_record(
     user_id: str,
     record_type: str,
-    record_content: str
+    record_content: str,
+    symptom_name: str = None,
+    severity: str = None,
+    duration_text: str = None
 ):
 
     connection = get_connection()
@@ -425,15 +540,21 @@ def save_health_record(
         INSERT INTO health_records (
             user_id,
             record_type,
-            record_content
+            record_content,
+            symptom_name,
+            severity,
+            duration_text
         )
 
-        VALUES (?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
             record_type,
-            record_content
+            record_content,
+            symptom_name,
+            severity,
+            duration_text
         )
     )
 
@@ -441,7 +562,43 @@ def save_health_record(
     connection.commit()
 
     connection.close()
+def update_health_record_fields(record_id, symptom_name, severity, duration_text):
 
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE health_records
+        SET symptom_name = ?,
+            severity = ?,
+            duration_text = ?
+        WHERE id = ?
+        """,
+        (symptom_name, severity, duration_text, record_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_null_symptom_records():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, record_content
+        FROM health_records
+        WHERE symptom_name IS NULL
+        """
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return rows
 
 def get_health_records(
     user_id: str,
@@ -466,6 +623,59 @@ def get_health_records(
         WHERE user_id = ?
 
         ORDER BY id DESC
+
+        LIMIT ?
+        """,
+        (
+            user_id,
+            limit
+        )
+    )
+
+
+    rows = cursor.fetchall()
+
+    connection.close()
+
+
+    return [
+        dict(row)
+        for row in rows
+    ]
+
+
+# ==================================================
+# SYMPTOM HISTORY (Symptom Tracker / Health Journal)
+# ==================================================
+
+def get_symptom_history(
+    user_id: str,
+    limit: int = 100
+):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            record_type,
+            symptom_name,
+            severity,
+            duration_text,
+            record_content,
+            created_at
+
+        FROM health_records
+
+        WHERE
+            user_id = ?
+            AND record_type IN ('SYMPTOM', 'URGENT', 'SELF_CARE')
+
+        ORDER BY created_at ASC, id ASC
 
         LIMIT ?
         """,
@@ -653,6 +863,10 @@ def save_reminder(
     frequency: str = "once"
 ):
 
+    from app.utils.reminder_time_parser import compute_due_at
+
+    due_at = compute_due_at(reminder_time)
+
     connection = get_connection()
 
     cursor = connection.cursor()
@@ -665,16 +879,18 @@ def save_reminder(
             reminder_text,
             reminder_time,
             frequency,
-            status
+            status,
+            due_at
         )
 
-        VALUES (?, ?, ?, ?, 'active')
+        VALUES (?, ?, ?, ?, 'active', ?)
         """,
         (
             user_id,
             reminder_text,
             reminder_time,
-            frequency
+            frequency,
+            due_at
         )
     )
 
@@ -734,6 +950,63 @@ def get_user_reminders(user_id: str):
         dict(row)
         for row in rows
     ]
+
+
+def get_due_reminders(user_id: str):
+
+    from app.utils.reminder_time_parser import reschedule_next_due
+    from datetime import datetime
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cursor.execute(
+        """
+        SELECT *
+
+        FROM reminders
+
+        WHERE
+            user_id = ?
+            AND status = 'active'
+            AND due_at IS NOT NULL
+            AND due_at <= ?
+
+        ORDER BY due_at ASC
+        """,
+        (user_id, now_str)
+    )
+
+    rows = cursor.fetchall()
+
+    due_reminders = [dict(row) for row in rows]
+
+    for reminder in due_reminders:
+
+        if reminder["frequency"] == "daily":
+
+            next_due_at = reschedule_next_due(reminder["due_at"])
+
+            cursor.execute(
+                "UPDATE reminders SET due_at = ?, last_notified_at = ? WHERE id = ?",
+                (next_due_at, now_str, reminder["id"])
+            )
+
+        else:
+
+            cursor.execute(
+                "UPDATE reminders SET status = 'completed', last_notified_at = ? WHERE id = ?",
+                (now_str, reminder["id"])
+            )
+
+    connection.commit()
+
+    connection.close()
+
+    return due_reminders
 
 
 def find_duplicate_reminder(
@@ -938,3 +1211,171 @@ def search_hospitals(
         dict(row)
         for row in rows
     ]
+
+
+# ==================================================
+# USER PROFILE
+# ==================================================
+
+def get_user_profile(user_id):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, email, age, gender, date_of_birth, phone,
+               blood_group, height_cm, weight_kg, allergies,
+               chronic_conditions, emergency_contact_name,
+               emergency_contact_phone, created_at
+        FROM users
+        WHERE id = ?
+        """,
+        (user_id,)
+    )
+
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        return None
+
+    return dict(row)
+
+
+def update_user_profile(user_id, profile_data):
+
+    allowed_fields = {
+        "name", "age", "gender", "date_of_birth", "phone",
+        "blood_group", "height_cm", "weight_kg", "allergies",
+        "chronic_conditions", "emergency_contact_name",
+        "emergency_contact_phone",
+    }
+
+    fields_to_update = {
+        key: value
+        for key, value in profile_data.items()
+        if key in allowed_fields
+    }
+
+    if not fields_to_update:
+        return False
+
+    set_clause = ", ".join(
+        f"{field} = ?" for field in fields_to_update
+    )
+    values = list(fields_to_update.values())
+    values.append(user_id)
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        f"UPDATE users SET {set_clause} WHERE id = ?",
+        values
+    )
+
+    connection.commit()
+    connection.close()
+
+    return True
+# ==================================================
+# CONVERSATION SUMMARY (Auto Summary feature)
+# ==================================================
+
+def get_conversation_summary(user_id: str):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            user_id,
+            overall_summary,
+            main_concerns,
+            symptoms,
+            medicines,
+            health_observations,
+            urgency_level,
+            recommended_actions,
+            created_at,
+            updated_at
+        FROM conversation_summaries
+        WHERE user_id = ?
+        """,
+        (user_id,)
+    )
+
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        return None
+
+    summary = dict(row)
+
+    # Decode the JSON-encoded list fields back into Python lists
+    for field in ("main_concerns", "symptoms", "medicines", "health_observations", "recommended_actions"):
+        raw_value = summary.get(field)
+        summary[field] = json.loads(raw_value) if raw_value else []
+
+    return summary
+
+
+def upsert_conversation_summary(
+    user_id: str,
+    overall_summary: str,
+    main_concerns: list,
+    symptoms: list,
+    medicines: list,
+    health_observations: list,
+    urgency_level: str,
+    recommended_actions: list
+):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO conversation_summaries (
+            user_id,
+            overall_summary,
+            main_concerns,
+            symptoms,
+            medicines,
+            health_observations,
+            urgency_level,
+            recommended_actions,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+
+        ON CONFLICT(user_id) DO UPDATE SET
+            overall_summary = excluded.overall_summary,
+            main_concerns = excluded.main_concerns,
+            symptoms = excluded.symptoms,
+            medicines = excluded.medicines,
+            health_observations = excluded.health_observations,
+            urgency_level = excluded.urgency_level,
+            recommended_actions = excluded.recommended_actions,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            user_id,
+            overall_summary,
+            json.dumps(main_concerns),
+            json.dumps(symptoms),
+            json.dumps(medicines),
+            json.dumps(health_observations),
+            urgency_level,
+            json.dumps(recommended_actions)
+        )
+    )
+
+    connection.commit()
+    connection.close()
+
+    return get_conversation_summary(user_id)

@@ -1,0 +1,16 @@
+TITLE: Diabetes Basics
+CATEGORY: Chronic Condition Guidance
+DOC_TYPE: patient_education
+LAST_UPDATED: 2026-01-15
+===
+## Overview
+Diabetes is a condition in which the body cannot properly regulate blood sugar (glucose) levels, either because it does not produce enough insulin (Type 1) or does not use insulin effectively (Type 2). Type 2 diabetes is far more common and is strongly linked to lifestyle and genetic factors.
+
+## Common Symptoms
+Frequent urination, excessive thirst, unexplained fatigue, blurred vision, slow-healing wounds, and unintended weight loss can all be signs of unmanaged diabetes. Many people with early Type 2 diabetes have no noticeable symptoms at all, which is why routine screening matters.
+
+## Everyday Management
+Blood sugar management typically involves a balanced diet with attention to carbohydrate intake, regular physical activity, maintaining a healthy weight, and, for many people, prescribed medication or insulin. Regular blood sugar monitoring and periodic checkups help catch complications early.
+
+## When to Seek Medical Attention
+Signs of a diabetic emergency include confusion, difficulty waking, rapid breathing, fruity-smelling breath, or loss of consciousness (which may indicate very high or very low blood sugar) and require immediate medical attention. Ongoing symptoms suggestive of diabetes, or difficulty managing existing diabetes, should be discussed with a healthcare professional rather than self-managed indefinitely.

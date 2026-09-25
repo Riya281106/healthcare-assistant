@@ -1,0 +1,16 @@
+TITLE: Understanding Hypertension (High Blood Pressure)
+CATEGORY: Chronic Condition Guidance
+DOC_TYPE: patient_education
+LAST_UPDATED: 2026-01-15
+===
+## Overview
+Hypertension means persistently elevated blood pressure in the arteries. Blood pressure is recorded as two numbers: systolic (pressure when the heart beats) over diastolic (pressure between beats). A reading consistently at or above 130/80 mmHg is generally considered elevated, though exact thresholds can vary by guideline and individual health context.
+
+## Why It Matters
+High blood pressure usually causes no noticeable symptoms, which is why it is sometimes called a "silent" condition. Left uncontrolled over years, it significantly increases the risk of heart attack, stroke, kidney damage, and other cardiovascular problems.
+
+## Lifestyle Factors
+Reducing salt intake, maintaining a healthy weight, regular physical activity, limiting alcohol, not smoking, managing stress, and eating a diet rich in fruits, vegetables, and whole grains can all help manage blood pressure. Many people also require prescribed medication alongside these lifestyle measures.
+
+## When to Seek Medical Attention
+A blood pressure reading above roughly 180/120 mmHg, especially with symptoms such as severe headache, chest pain, shortness of breath, vision changes, or confusion, is a medical emergency requiring immediate attention. Otherwise, blood pressure concerns, including a new diagnosis or medication questions, should be discussed with a qualified healthcare professional who can consider a person's full medical history.
