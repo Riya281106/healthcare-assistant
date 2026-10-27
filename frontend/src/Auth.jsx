@@ -70,28 +70,9 @@ function Auth({ onLoginSuccess }) {
 
 
   return (
-
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      minHeight: "100vh",
-      background: "#f5f7fb",
-      fontFamily: "sans-serif",
-    }}>
-
-      <div style={{
-        background: "white",
-        padding: "40px",
-        borderRadius: "12px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-        width: "320px",
-      }}>
-
-        <h2 style={{ marginTop: 0 }}>
-          {mode === "login" ? "Log In" : "Create Account"}
-        </h2>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h2>{mode === "login" ? "Log in" : "Create account"}</h2>
 
         {mode === "register" && (
           <input
@@ -99,7 +80,6 @@ function Auth({ onLoginSuccess }) {
             placeholder="Name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
           />
         )}
 
@@ -108,7 +88,6 @@ function Auth({ onLoginSuccess }) {
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
         />
 
         <input
@@ -116,57 +95,28 @@ function Auth({ onLoginSuccess }) {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
         />
 
-        {error && (
-          <p style={{ color: "#dc2626", fontSize: "14px" }}>
-            {error}
-          </p>
-        )}
+        {error && <p className="auth-error">{error}</p>}
 
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          style={{
-            width: "100%",
-            padding: "12px",
-            background: "#2563eb",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          {loading ? "Please wait..." : mode === "login" ? "Log In" : "Sign Up"}
+        <button onClick={handleSubmit} disabled={loading}>
+          {loading ? "Please wait..." : mode === "login" ? "Log in" : "Sign up"}
         </button>
 
-        <p style={{ textAlign: "center", marginTop: "15px", fontSize: "14px" }}>
+        <p className="auth-switch">
           {mode === "login" ? (
             <>
               No account?{" "}
-              <span
-                style={{ color: "#2563eb", cursor: "pointer" }}
-                onClick={() => setMode("register")}
-              >
-                Sign up
-              </span>
+              <span onClick={() => setMode("register")}>Sign up</span>
             </>
           ) : (
             <>
               Already have an account?{" "}
-              <span
-                style={{ color: "#2563eb", cursor: "pointer" }}
-                onClick={() => setMode("login")}
-              >
-                Log in
-              </span>
+              <span onClick={() => setMode("login")}>Log in</span>
             </>
           )}
         </p>
-
       </div>
-
     </div>
   );
 }

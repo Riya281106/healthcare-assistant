@@ -4,6 +4,7 @@ import traceback
 
 from app.core.database import (
     init_db,
+    seed_hospitals,
     get_recent_messages,
     save_message,
     save_health_record,
@@ -15,6 +16,10 @@ from app.core.database import (
 from app.schemas.chat_schema import ChatRequest
 
 from app.services.agents.orchestrator import orchestrate
+from app.services.agents.agentic_orchestrator import agentic_orchestrate
+
+import os
+AGENTIC_MODE = os.getenv("AGENTIC_MODE", "false").lower() == "true"
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.profile import router as profile_router
@@ -78,6 +83,10 @@ def startup_event():
     init_db()
 
     print("DATABASE INITIALIZED")
+
+    seeded_count = seed_hospitals()
+
+    print(f"HOSPITALS TABLE READY -- {seeded_count} rows")
 
     try:
 
@@ -146,11 +155,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         # RUN AGENT ORCHESTRATOR
         # =============================================
 
-        result = orchestrate(
-            message=request.message,
-            history=history,
-            user_id=request.user_id
-        )
+        if AGENTIC_MODE:
+            result = agentic_orchestrate(
+                message=request.message,
+                history=history,
+                user_id=request.user_id
+            )
+        else:
+            result = orchestrate(
+                message=request.message,
+                history=history,
+                user_id=request.user_id
+            )
 
 
         print("\n===================================")

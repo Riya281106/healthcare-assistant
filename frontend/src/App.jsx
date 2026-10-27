@@ -12,6 +12,45 @@ import KnowledgePage from "./KnowledgePage.jsx";
 
 const API_URL = "http://127.0.0.1:8000/api/chat";
 
+// Turns plain-text URLs and phone numbers coming back from the
+// assistant (e.g. hospital search results) into tappable links,
+// and preserves the line breaks the backend already formats with.
+const LINK_PATTERN = /(https?:\/\/[^\s]+)|(\+?\d[\d\s-]{7,}\d)/g;
+
+function renderLinkedText(text) {
+  const parts = text.split(LINK_PATTERN).filter((part) => part !== undefined && part !== "");
+
+  return parts.map((part, index) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a key={index} href={part} target="_blank" rel="noopener noreferrer">
+          {part}
+        </a>
+      );
+    }
+
+    if (/^\+?\d[\d\s-]{7,}\d$/.test(part)) {
+      return (
+        <a key={index} href={`tel:${part.replace(/[\s-]/g, "")}`}>
+          {part}
+        </a>
+      );
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function renderMessageContent(content) {
+  const lines = content.split("\n");
+
+  return lines.map((line, index) => (
+    <p key={index} className={line.trim() === "" ? "line-spacer" : undefined}>
+      {renderLinkedText(line)}
+    </p>
+  ));
+}
+
 const TIER_LABELS = {
   emergency: "Emergency",
   urgent: "Needs a Doctor Soon",
@@ -175,8 +214,8 @@ function App() {
 
   if (currentView === "dashboard") {
     return (
-      <div className="situation-space tier-bg-general">
-        <header className="top-bar">
+      <div className="dashboard-page">
+        <header className="top-bar top-bar-dark">
           <div className="top-bar-brand">
             <span className="brand-dot"></span>
             Healthcare AI
@@ -240,7 +279,7 @@ function App() {
     <div className={`situation-space tier-bg-${currentTier}`}>
       {/* ================= TOP BAR ================= */}
 
-      <header className="top-bar">
+      <header className="top-bar top-bar-dark">
         <div className="top-bar-brand">
           <span className="brand-dot"></span>
           Healthcare AI
@@ -267,7 +306,7 @@ function App() {
             )}
 
             <div className={`moment-card ${item.role}`}>
-              <p>{item.content}</p>
+              {renderMessageContent(item.content)}
 
               {item.role === "assistant" &&
                 item.sources &&

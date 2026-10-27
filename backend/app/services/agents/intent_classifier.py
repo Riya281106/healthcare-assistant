@@ -143,7 +143,13 @@ def classify_intent(message: str) -> IntentType:
         "find hospital",
         "find a hospital",
         "nearby clinic",
-        "emergency room"
+        "emergency room",
+        "book an appointment",
+        "book appointment",
+        "schedule an appointment",
+        "make an appointment",
+        "book a doctor",
+        "doctor appointment"
     ]
 
     if any(keyword in text for keyword in hospital_keywords):

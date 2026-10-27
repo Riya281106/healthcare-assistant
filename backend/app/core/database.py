@@ -284,6 +284,177 @@ def init_db():
 
 
 # ==================================================
+# HOSPITALS -- SEED DATA
+# ==================================================
+# Local fallback dataset used only when GOOGLE_PLACES_API_KEY is not
+# configured (see app/services/integrations/google_places.py). Real,
+# independently verified hospitals/clinics with published phone
+# numbers, so the Hospital Agent has something usable out of the box
+# instead of an empty table. This is NOT a substitute for live data --
+# phone numbers and hours can change -- but it beats returning nothing.
+
+HOSPITAL_SEED_DATA = [
+    # ---------------- Mumbai: Andheri (East & West) ----------------
+    {
+        "name": "Holy Spirit Hospital",
+        "city": "Mumbai",
+        "area": "Andheri East",
+        "address": "Mahakali Caves Road, Sher-e-Punjab Colony, Andheri East, Mumbai 400093",
+        "phone": "022-4247 8888 (OPD appointments: 7045517269)",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Kokilaben Dhirubhai Ambani Hospital",
+        "city": "Mumbai",
+        "area": "Andheri West",
+        "address": "Rao Saheb Achutrao Patwardhan Marg, Four Bungalows, Andheri West, Mumbai 400053",
+        "phone": "022-3069 6969 (appointments); Emergency: 022-3091 9191; Toll-free: 1800-3000-3333",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Seven Hills Hospital",
+        "city": "Mumbai",
+        "area": "Andheri East",
+        "address": "Marol Maroshi Road, Andheri East, Mumbai 400059",
+        "phone": "022-6767 6766",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "CritiCare Hospital",
+        "city": "Mumbai",
+        "area": "Andheri East",
+        "address": "Teli Gali, Andheri East, Mumbai 400069",
+        "phone": "022-6231 6666",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "BSES MG Hospital",
+        "city": "Mumbai",
+        "area": "Andheri West",
+        "address": "S.V. Road, opposite Andheri railway station, Andheri West, Mumbai 400058",
+        "phone": "022-6970 707",
+        "emergency_available": "no",
+    },
+    # ---------------- Mumbai: other areas ----------------
+    {
+        "name": "Lilavati Hospital & Research Centre",
+        "city": "Mumbai",
+        "area": "Bandra",
+        "address": "A-791, Bandra Reclamation, Bandra West, Mumbai 400050",
+        "phone": "022-2675 1000",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Holy Family Hospital",
+        "city": "Mumbai",
+        "area": "Bandra",
+        "address": "St. Andrew's Road, Bandra West, Mumbai 400050",
+        "phone": "022-3061 0555",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "P.D. Hinduja National Hospital & Medical Research Centre",
+        "city": "Mumbai",
+        "area": "Mahim",
+        "address": "Veer Savarkar Marg, Mahim, Mumbai 400016",
+        "phone": "022-2445 1515",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Dr. Balabhai Nanavati Hospital",
+        "city": "Mumbai",
+        "area": "Vile Parle",
+        "address": "S.V. Road, Vile Parle West, Mumbai 400056",
+        "phone": "022-2626 7500",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Breach Candy Hospital Trust",
+        "city": "Mumbai",
+        "area": "Breach Candy",
+        "address": "60-A, Bhulabhai Desai Road, Mumbai 400026",
+        "phone": "022-2367 7788",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Jaslok Hospital & Research Centre",
+        "city": "Mumbai",
+        "area": "Pedder Road",
+        "address": "15, Dr. G. Deshmukh Marg, Pedder Road, Mumbai 400026",
+        "phone": "022-6657 3333",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Bombay Hospital & Medical Research Centre",
+        "city": "Mumbai",
+        "area": "Marine Lines",
+        "address": "12, New Marine Lines, Mumbai 400020",
+        "phone": "022-2206 7676",
+        "emergency_available": "yes",
+    },
+    {
+        "name": "Kapadia Multispeciality Hospital",
+        "city": "Mumbai",
+        "area": "Goregaon",
+        "address": "M.G. Road, Goregaon West, Mumbai 400062",
+        "phone": "022-2879 7400",
+        "emergency_available": "no",
+    },
+    # ---------------- Pune ----------------
+    {
+        "name": "Ruby Hall Clinic",
+        "city": "Pune",
+        "area": "Sassoon Road",
+        "address": "40, Sassoon Road, Pune 411001",
+        "phone": "020-6699 9999",
+        "emergency_available": "yes",
+    },
+]
+
+
+def seed_hospitals():
+    """
+    Inserts the local hospital fallback dataset if the `hospitals`
+    table is currently empty. Safe to call on every startup -- it
+    is a no-op once the table has any rows, so it never duplicates
+    data or clobbers anything an admin has added manually.
+    """
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM hospitals")
+    existing_count = cursor.fetchone()[0]
+
+    if existing_count > 0:
+        connection.close()
+        return existing_count
+
+    for hospital in HOSPITAL_SEED_DATA:
+        cursor.execute(
+            """
+            INSERT INTO hospitals (
+                name, city, area, address, phone, emergency_available
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                hospital["name"],
+                hospital["city"],
+                hospital["area"],
+                hospital["address"],
+                hospital["phone"],
+                hospital["emergency_available"],
+            ),
+        )
+
+    connection.commit()
+    connection.close()
+
+    return len(HOSPITAL_SEED_DATA)
+
+
+# ==================================================
 # USERS
 # ==================================================
 
@@ -1174,8 +1345,12 @@ def search_hospitals(
 
     if area:
 
+        # LIKE match, not exact: a seeded row's area is often more
+        # specific than what the user said (e.g. "Andheri East" vs.
+        # the user just saying "Andheri"), so an exact match would
+        # miss real rows. This matches either direction.
         query += """
-            AND LOWER(area) = LOWER(?)
+            AND LOWER(area) LIKE '%' || LOWER(?) || '%'
         """
 
         parameters.append(area)
