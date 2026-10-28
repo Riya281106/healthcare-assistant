@@ -1,9 +1,12 @@
 from app.services.agents.intent_classifier import classify_intent
-from app.utils.emergency_detector import is_emergency
+from app.utils.emergency_detector import detect_emergency
 from app.utils.risk_classifier import classify_risk
 from app.services.agents.urgent_agent import run_urgent_agent
 from app.services.agents.self_care_agent import run_self_care_agent
 from app.core.database import get_user_memories
+from app.core.logging_config import get_logger
+
+logger = get_logger("orchestrator")
 
 
 def orchestrate(
@@ -12,14 +15,33 @@ def orchestrate(
     user_id: str = None
 ):
 
-    print("\n===================================")
-    print("ORCHESTRATOR STARTED")
-    print("===================================")
-
-    print("MESSAGE:", message)
-    print("USER ID:", user_id)
-
     history = history or []
+
+    # ==========================================
+    # EMERGENCY SAFETY NET -- ALWAYS FIRST
+    # Runs before everything else so no routing
+    # decision can ever bypass it. Fixed text, no LLM.
+    # ==========================================
+
+    assessment = detect_emergency(message)
+
+    if assessment is not None:
+
+        logger.warning(
+            "EMERGENCY detected category=%s rules=%s",
+            assessment.primary_category,
+            ",".join(assessment.rule_ids)
+        )
+
+        from app.services.agents.emergency_agent import (
+            run_emergency_agent
+        )
+
+        return build_standard_response(
+            result=run_emergency_agent(message, assessment),
+            intent="EMERGENCY",
+            next_action="EMERGENCY_AGENT"
+        )
 
     # ==========================================
     # NORMALIZE CONVERSATION HISTORY
@@ -41,16 +63,13 @@ def orchestrate(
 
     # ==========================================
     # RISK CLASSIFICATION
-    # This now actively controls routing for the
-    # URGENT and SELF_CARE tiers. EMERGENCY still
-    # goes through the existing is_emergency()
-    # check right below, untouched, since that
-    # logic already works.
+    # Controls routing for the URGENT and SELF_CARE
+    # tiers. Emergencies were already handled above.
     # ==========================================
 
     risk_tier = classify_risk(message)
 
-    print("RISK CLASSIFIER RESULT:", risk_tier)
+    logger.info("risk_tier=%s", risk_tier)
 
 
     if risk_tier == "URGENT":
@@ -84,30 +103,12 @@ def orchestrate(
 
 
     # ==========================================
-    # EMERGENCY PRIORITY CHECK
-    # ==========================================
-
-    if is_emergency(message):
-
-        from app.services.agents.emergency_agent import (
-            run_emergency_agent
-        )
-
-        result = run_emergency_agent(message)
-
-        return build_standard_response(
-            result=result,
-            intent="EMERGENCY",
-            next_action="EMERGENCY_AGENT"
-        )
-
-    # ==========================================
     # INTENT CLASSIFICATION
     # ==========================================
 
     intent = classify_intent(message)
 
-    print("CLASSIFIED INTENT:", intent)
+    logger.info("intent=%s", intent)
 
     # ==========================================
     # RETRIEVE LONG-TERM MEMORY

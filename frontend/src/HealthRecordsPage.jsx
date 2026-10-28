@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-
-const API_BASE = "http://127.0.0.1:8000/api";
+import { getHealthRecords } from "./api.js";
 
 const TYPE_DISPLAY = {
   EMERGENCY: { label: "Emergency", className: "tier-badge-emergency" },
@@ -26,7 +25,7 @@ function extractSummaryLine(recordContent) {
   return match ? match[1].trim() : recordContent.slice(0, 80);
 }
 
-function HealthRecordsPage({ userId, onBack }) {
+function HealthRecordsPage({ onBack }) {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,14 +33,7 @@ function HealthRecordsPage({ userId, onBack }) {
   useEffect(() => {
     const fetchRecords = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE}/health-records?user_id=${encodeURIComponent(userId)}`
-        );
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || "Failed to load records");
-        }
+        const data = await getHealthRecords();
 
         setRecords(data.records || []);
       } catch (err) {
@@ -52,7 +44,7 @@ function HealthRecordsPage({ userId, onBack }) {
     };
 
     fetchRecords();
-  }, [userId]);
+  }, []);
 
   return (
     <div className="records-page">

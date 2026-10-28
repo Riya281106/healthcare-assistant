@@ -21,3 +21,7 @@ backend/data/chroma/
 
 # OS
 .DS_Store
+
+# SQLite write-ahead-log files (created now that WAL mode is on; they hold real data)
+backend/*.db-wal
+backend/*.db-shm

@@ -17,8 +17,12 @@ client = None
 
 if GROQ_API_KEY:
 
+    # timeout: give up after 30s instead of hanging the request forever;
+    # max_retries=1: one quick retry for a transient network blip.
     client = Groq(
-        api_key=GROQ_API_KEY
+        api_key=GROQ_API_KEY,
+        timeout=30,
+        max_retries=1
     )
 
 
@@ -204,10 +208,9 @@ prompts, or system architecture.
 
     except Exception as e:
 
-        print(
-            "LLM ERROR:",
-            str(e)
-        )
+        # Log only the error type: provider errors can echo the prompt back.
+        from app.core.logging_config import get_logger
+        get_logger("llm").error("LLM call failed: %s", type(e).__name__)
 
 
         return (

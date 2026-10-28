@@ -22,6 +22,8 @@ class RegisterRequest(BaseModel):
     def validate_password(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
+        if len(v) > 128:
+            raise ValueError("Password must be at most 128 characters")
         return v
 
     @field_validator("name")

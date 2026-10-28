@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
 import Auth from "./Auth.jsx";
 import HealthRecordsPage from "./HealthRecordsPage.jsx";
@@ -9,47 +9,7 @@ import ConversationHistoryPage from "./ConversationHistoryPage.jsx";
 import RemindersPage from "./RemindersPage.jsx";
 import ProfilePage from "./ProfilePage.jsx";
 import KnowledgePage from "./KnowledgePage.jsx";
-
-const API_URL = "http://127.0.0.1:8000/api/chat";
-
-// Turns plain-text URLs and phone numbers coming back from the
-// assistant (e.g. hospital search results) into tappable links,
-// and preserves the line breaks the backend already formats with.
-const LINK_PATTERN = /(https?:\/\/[^\s]+)|(\+?\d[\d\s-]{7,}\d)/g;
-
-function renderLinkedText(text) {
-  const parts = text.split(LINK_PATTERN).filter((part) => part !== undefined && part !== "");
-
-  return parts.map((part, index) => {
-    if (/^https?:\/\//.test(part)) {
-      return (
-        <a key={index} href={part} target="_blank" rel="noopener noreferrer">
-          {part}
-        </a>
-      );
-    }
-
-    if (/^\+?\d[\d\s-]{7,}\d$/.test(part)) {
-      return (
-        <a key={index} href={`tel:${part.replace(/[\s-]/g, "")}`}>
-          {part}
-        </a>
-      );
-    }
-
-    return <span key={index}>{part}</span>;
-  });
-}
-
-function renderMessageContent(content) {
-  const lines = content.split("\n");
-
-  return lines.map((line, index) => (
-    <p key={index} className={line.trim() === "" ? "line-spacer" : undefined}>
-      {renderLinkedText(line)}
-    </p>
-  ));
-}
+import { sendChatMessage, AUTH_EXPIRED_EVENT } from "./api.js";
 
 const TIER_LABELS = {
   emergency: "Emergency",
@@ -80,6 +40,12 @@ function App() {
     setAuthToken(null);
     setCurrentUser(null);
   };
+
+  // If any request gets a 401 (expired/invalid login), go back to the login screen.
+  useEffect(() => {
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleLogout);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleLogout);
+  }, []);
 
   const [message, setMessage] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
@@ -118,20 +84,7 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: String(currentUser.id),
-          message: trimmedMessage,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || "Backend request failed");
-      }
+      const data = await sendChatMessage(trimmedMessage);
 
       const tier = data.urgency_tier || "general";
       setCurrentTier(tier);
@@ -149,12 +102,18 @@ function App() {
     } catch (error) {
       console.error("CHAT ERROR:", error);
 
+      // A 401 is handled globally (back to login). For everything else, show
+      // the server's message when there is one (too long, too fast, unavailable).
+      const serverMessage =
+        error.status && error.status !== 401
+          ? error.message
+          : "Sorry, I could not connect to the healthcare assistant backend. Please make sure the backend server is running on port 8000.";
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "Sorry, I could not connect to the healthcare assistant backend. Please make sure the backend server is running on port 8000.",
+          content: serverMessage,
           tier: "general",
           sources: [],
         },
@@ -177,7 +136,6 @@ function App() {
   if (currentView === "records") {
     return (
       <HealthRecordsPage
-        userId={currentUser.id}
         onBack={() => setCurrentView("chat")}
       />
     );
@@ -186,7 +144,6 @@ function App() {
   if (currentView === "symptoms") {
     return (
       <SymptomTimelinePage
-        userId={currentUser.id}
         onBack={() => setCurrentView("dashboard")}
       />
     );
@@ -214,8 +171,8 @@ function App() {
 
   if (currentView === "dashboard") {
     return (
-      <div className="dashboard-page">
-        <header className="top-bar top-bar-dark">
+      <div className="situation-space tier-bg-general">
+        <header className="top-bar">
           <div className="top-bar-brand">
             <span className="brand-dot"></span>
             Healthcare AI
@@ -279,7 +236,7 @@ function App() {
     <div className={`situation-space tier-bg-${currentTier}`}>
       {/* ================= TOP BAR ================= */}
 
-      <header className="top-bar top-bar-dark">
+      <header className="top-bar">
         <div className="top-bar-brand">
           <span className="brand-dot"></span>
           Healthcare AI
@@ -306,7 +263,7 @@ function App() {
             )}
 
             <div className={`moment-card ${item.role}`}>
-              {renderMessageContent(item.content)}
+              <p>{item.content}</p>
 
               {item.role === "assistant" &&
                 item.sources &&

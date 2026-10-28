@@ -6,6 +6,9 @@ from app.core.database import (
 )
 
 from app.services.llm.client import generate
+from app.core.logging_config import get_logger
+
+logger = get_logger("summary")
 
 
 # ==================================================
@@ -105,8 +108,8 @@ def _parse_summary_response(raw_text: str):
         return parsed
 
     except (json.JSONDecodeError, ValueError):
-        print("SUMMARY PARSE ERROR — raw response was:")
-        print(raw_text)
+        # Do not log raw_text: it contains the user's health information.
+        logger.warning("summary parse error (response length=%d)", len(raw_text or ""))
         return None
 
 
@@ -140,7 +143,7 @@ def update_conversation_summary_if_needed(user_id: str, intent: str):
         )
 
     except Exception as e:
-        print("SUMMARY GENERATION ERROR:", str(e))
+        logger.warning("summary generation error: %s", type(e).__name__)
         return None
 
     parsed = _parse_summary_response(raw_response)

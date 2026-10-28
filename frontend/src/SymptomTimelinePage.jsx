@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-
-const API_BASE = "http://127.0.0.1:8000/api";
+import { getSymptoms } from "./api.js";
 
 const TYPE_DISPLAY = {
   URGENT: { label: "Needs a Doctor Soon", className: "tier-badge-urgent" },
@@ -59,7 +58,7 @@ function groupByDay(entries) {
   return groups;
 }
 
-function SymptomTimelinePage({ userId, onBack }) {
+function SymptomTimelinePage({ onBack }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,14 +66,7 @@ function SymptomTimelinePage({ userId, onBack }) {
   useEffect(() => {
     const fetchSymptoms = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE}/symptoms?user_id=${encodeURIComponent(userId)}`
-        );
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.detail || "Failed to load symptom history");
-        }
+        const data = await getSymptoms();
 
         setEntries(data.symptoms || []);
       } catch (err) {
@@ -85,7 +77,7 @@ function SymptomTimelinePage({ userId, onBack }) {
     };
 
     fetchSymptoms();
-  }, [userId]);
+  }, []);
 
   const dayGroups = groupByDay(entries);
 

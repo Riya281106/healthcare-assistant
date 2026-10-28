@@ -1,10 +1,26 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List, Dict, Any
+
+from app.core.config import settings
 
 
 class ChatRequest(BaseModel):
-    user_id: str
+    # NOTE: there is deliberately no user_id field. The server takes the user
+    # from the login token. Accepting user_id from the browser let anyone
+    # read or write another person's health data by changing one number.
     message: str
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Message cannot be empty")
+        if len(v) > settings.MAX_MESSAGE_CHARS:
+            raise ValueError(
+                f"Message is too long (maximum {settings.MAX_MESSAGE_CHARS} characters)"
+            )
+        return v
 
 
 class RagSource(BaseModel):

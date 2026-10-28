@@ -1,7 +1,9 @@
 import time
 import traceback
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.deps import get_current_user, get_admin_user
 
 from app.services.rag.vector_store import (
     get_document_count,
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/api/rag", tags=["rag"])
 # ==================================================
 
 @router.get("/stats")
-def rag_stats():
+def rag_stats(current_user=Depends(get_current_user)):
 
     try:
 
@@ -38,7 +40,7 @@ def rag_stats():
 
         traceback.print_exc()
 
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Could not read knowledge base information.")
 
 
 # ==================================================
@@ -49,7 +51,7 @@ def rag_stats():
 # ==================================================
 
 @router.post("/reindex")
-def rag_reindex(force: bool = False):
+def rag_reindex(force: bool = False, admin_user=Depends(get_admin_user)):
 
     try:
 

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const RAG_STATS_URL = "http://127.0.0.1:8000/api/rag/stats";
+import { getRagStats } from "./api.js";
 
 function KnowledgePage({ onBack }) {
   const [stats, setStats] = useState(null);
@@ -10,13 +9,7 @@ function KnowledgePage({ onBack }) {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch(RAG_STATS_URL);
-
-        if (!response.ok) {
-          throw new Error("Failed to load knowledge base stats");
-        }
-
-        const data = await response.json();
+        const data = await getRagStats();
         setStats(data);
       } catch (err) {
         console.error("KNOWLEDGE STATS ERROR:", err);
