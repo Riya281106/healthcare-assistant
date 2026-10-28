@@ -33,10 +33,17 @@ from app.services.facilities.specialty import (
     detect_specialty,
     specialty_by_key,
 )
+import os
+
 from app.services.integrations.google_places import (
     PlacesUnavailable,
     is_configured,
     search_places_checked,
+)
+from app.services.integrations.osm_places import (
+    SOURCE_LABEL as OSM_SOURCE,
+    LocationNotFound,
+    search_facilities as osm_search,
 )
 from app.services.session_context import (
     PIN_RE,
@@ -265,6 +272,19 @@ def _lookup_bookings(facilities: List[dict]) -> None:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _choose_provider() -> str:
+    """
+    "google" when PLACES_PROVIDER=google, or when it is unset/auto and a Google key exists;
+    otherwise "osm" (free, no key). Set PLACES_PROVIDER=osm to force OpenStreetMap.
+    """
+    setting = (os.getenv("PLACES_PROVIDER") or "auto").strip().lower()
+    if setting == "google":
+        return "google"
+    if setting == "osm":
+        return "osm"
+    return "google" if is_configured() else "osm"
+
+
 def _facility_record(position: int, place: dict, spec) -> dict:
     return {
         "n": position,
@@ -276,12 +296,13 @@ def _facility_record(position: int, place: dict, spec) -> dict:
         "maps_url": place.get("maps_url"),
         "rating": place.get("rating"),
         "open_now": place.get("open_now"),
-        "source": "Google Maps listing",
+        "source": place.get("source") or "Google Maps listing",
+        "distance_km": place.get("distance_km"),
         "booking": None,
     }
 
 
-def _format_results(facilities: List[dict], spec_key: str, where: str, lang: str) -> str:
+def _format_results(facilities: List[dict], spec_key: str, where: str, lang: str, source: str = "Google Maps listings") -> str:
     what = what_label(spec_key, lang)
     n = len(facilities)
     count_phrase = {
@@ -291,7 +312,7 @@ def _format_results(facilities: List[dict], spec_key: str, where: str, lang: str
         "mr": f"{n} निकाल",
     }.get(lang, f"are {n} result{'s' if n != 1 else ''}")
 
-    lines = [tr("results_intro", lang, what=what, where=where, count_phrase=count_phrase)]
+    lines = [tr("results_intro", lang, what=what, where=where, count_phrase=count_phrase, source=source)]
     if n < MAX_RESULTS:
         lines.append(tr("results_fewer", lang, n=n))
     lines.append("")
@@ -327,18 +348,27 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
     # remember what the user told us and reset the step.
     save_care_state(user_id, {"stage": "none", "specialty": spec.key, "pin": pin, "locality": locality, "facilities": []})
 
-    if not is_configured():
-        logger.warning("hospital search requested but GOOGLE_PLACES_API_KEY is not set")
-        return _reply(tr("search_not_configured", lang, what=maps_what, where=where), ui="notice")
+    provider = _choose_provider()
 
     try:
-        raw = search_places_checked(
-            _build_query(spec, pin, locality, emergency),
-            place_type=spec.place_type,
-            limit=10,
-        )
+        if provider == "google":
+            if not is_configured():
+                logger.warning("PLACES_PROVIDER=google but GOOGLE_PLACES_API_KEY is not set")
+                return _reply(tr("search_not_configured", lang, what=maps_what, where=where), ui="notice")
+            raw = search_places_checked(
+                _build_query(spec, pin, locality, emergency),
+                place_type=spec.place_type,
+                limit=10,
+            )
+        else:
+            raw = osm_search(spec.key, pin, locality, emergency=emergency, limit=10)
+
+    except LocationNotFound:
+        save_care_state(user_id, {**state, "stage": "awaiting_location", "specialty": spec.key, "emergency": emergency, "facilities": []})
+        return _reply(tr("ask_clarify_location", lang), ui="ask_location")
+
     except PlacesUnavailable as exc:
-        logger.warning("places search unavailable: %s", exc)
+        logger.warning("facility search unavailable (%s): %s", provider, exc)
         return _reply(tr("search_unavailable", lang, what=maps_what, where=where), ui="notice")
 
     seen, cleaned = set(), []
@@ -371,7 +401,8 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
     })
 
     logger.info("care search: specialty=%s results=%d", spec.key, len(facilities))
-    return _reply(_format_results(facilities, spec.key, where, lang), facilities=facilities, ui="facility_results")
+    source = facilities[0]["source"]
+    return _reply(_format_results(facilities, spec.key, where, lang, source), facilities=facilities, ui="facility_results")
 
 
 # ----------------------------------------------------------------------------

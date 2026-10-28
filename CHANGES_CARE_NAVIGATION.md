@@ -74,3 +74,14 @@ Backend: 160 passed (116 existing + 44 new). Frontend: production build succeeds
 - The Google Maps suggestion in failure messages is always an English query.
 - Language choice is shown in the selector after "reply in Marathi"; choosing Auto by hand clears the saved choice.
 - Backend tests: 169 passed.
+
+## Free hospital search (no card, no key)
+- New `services/integrations/osm_places.py`: Nominatim (PIN/locality -> coordinates) + Overpass (nearby facilities).
+  Used automatically when no `GOOGLE_PLACES_API_KEY` is set (or `PLACES_PROVIDER=osm`).
+- Results show the data source, distance, and "not listed" for anything OpenStreetMap does not have.
+- LIMITS: OpenStreetMap data for India is community-edited and often lacks phone/website/address, so fewer verified booking
+  links; some hospitals may be missing. NOT yet run against the live servers (tests use stubs); try it once manually.
+
+- First live run: the geocoder worked but the public Overpass servers returned an HTTP error / timeout. Now: faster timeouts
+  (9 s per server), a different backup server, the HTTP status is logged, and if every Overpass server fails the search falls back
+  to Nominatim's own category search. `python osm_check.py` (in backend) shows what each free server answers.

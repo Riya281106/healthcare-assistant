@@ -22,6 +22,18 @@ from app.services.integrations.google_places import PlacesUnavailable
 # fixtures
 # ----------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    """Tests must never call OpenStreetMap / Google / hospital websites."""
+    monkeypatch.delenv("PLACES_PROVIDER", raising=False)
+
+    def offline(*args, **kwargs):
+        raise PlacesUnavailable("network disabled in tests")
+
+    monkeypatch.setattr(nav, "osm_search", offline)
+    monkeypatch.setattr(nav, "find_booking_link", lambda website: booking_finder.BookingInfo(status="unreachable"))
+
+
 @pytest.fixture()
 def real(client, monkeypatch):
     """Use the REAL orchestrator behind the API."""
@@ -383,6 +395,7 @@ def test_K_search_failure_shows_no_results_and_no_invented_hospitals(real, alice
 
 
 def test_K2_missing_api_key_is_reported_honestly(real, alice, monkeypatch):
+    monkeypatch.setenv("PLACES_PROVIDER", "google")      # Google forced, but no key
     monkeypatch.setattr(nav, "is_configured", lambda: False)
     data = chat(real, alice, "Find eye hospitals near 400001")
     assert "isn't set up" in data["response"]
@@ -651,3 +664,196 @@ def test_language_choice_is_visible_and_can_be_reset(real, alice, llm):
     assert data["language"] == "en" and data["language_pinned"] is False
     data = chat(real, alice, "ok thanks")
     assert data["language"] == "en"
+
+
+# ----------------------------------------------------------------------------
+# Free provider: OpenStreetMap (no key, no card)
+# ----------------------------------------------------------------------------
+
+import app.services.integrations.osm_places as osm
+
+
+def osm_place(i, **over):
+    base = {
+        "name": f"OSM Eye Clinic {i}", "address": f"{i} Lane, Mumbai", "phone": None,
+        "website": None, "maps_url": f"https://www.google.com/maps/search/?api=1&query=18.9,72.8{i}",
+        "rating": None, "open_now": None, "place_type": "clinic", "place_id": f"node/{i}",
+        "source": osm.SOURCE_LABEL, "distance_km": float(i),
+    }
+    base.update(over)
+    return base
+
+
+def test_default_provider_is_osm_when_no_google_key(monkeypatch):
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    assert nav._choose_provider() == "osm"
+    monkeypatch.setattr(nav, "is_configured", lambda: True)
+    assert nav._choose_provider() == "google"
+    monkeypatch.setenv("PLACES_PROVIDER", "osm")
+    assert nav._choose_provider() == "osm"
+
+
+def test_osm_results_are_shown_with_honest_source_and_missing_fields(real, alice, monkeypatch):
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    monkeypatch.setattr(nav, "osm_search", lambda key, pin, loc, emergency=False, limit=10: [osm_place(i) for i in range(1, 7)])
+    data = chat(real, alice, "Find eye hospitals near 400001")
+    assert len(data["facilities"]) == 5
+    assert "OpenStreetMap" in data["response"] and "may be incomplete" in data["response"]
+    assert data["facilities"][0]["source"].startswith("OpenStreetMap")
+    assert data["facilities"][0]["distance_km"] == 1.0
+    assert "not listed" in data["response"]                  # website missing in the data
+
+
+def test_osm_unknown_location_asks_again_instead_of_failing(real, alice, monkeypatch):
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    def nowhere(*a, **k):
+        raise osm.LocationNotFound("999999")
+    monkeypatch.setattr(nav, "osm_search", nowhere)
+    data = chat(real, alice, "Find eye hospitals near 999999")
+    assert data["ui"] == "ask_location"
+    data = chat(real, alice, "Dadar, Mumbai")                 # still waiting for a usable location
+    assert data["agent"] == "CARE_NAVIGATOR"
+
+
+def test_osm_outage_is_reported_not_faked(real, alice, monkeypatch):
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    data = chat(real, alice, "Find eye hospitals near 400001")   # autouse stub raises PlacesUnavailable
+    assert "couldn't complete" in data["response"]
+    assert data["facilities"] == []
+
+
+OVERPASS_SAMPLE = [
+    {"type": "node", "id": 1, "lat": 18.9400, "lon": 72.8350,
+     "tags": {"name": "Far Eye Hospital", "amenity": "hospital", "website": "farhospital.example.org",
+              "phone": "+91 22 1111 1111", "addr:street": "MG Road", "addr:city": "Mumbai", "addr:postcode": "400001"}},
+    {"type": "way", "id": 2, "center": {"lat": 18.9330, "lon": 72.8340},
+     "tags": {"name": "Near Netralaya", "amenity": "clinic"}},
+    {"type": "node", "id": 3, "lat": 18.9331, "lon": 72.8341, "tags": {"amenity": "clinic"}},                 # no name: dropped
+    {"type": "node", "id": 4, "tags": {"name": "No Coordinates", "amenity": "clinic"}},                         # no coords: dropped
+    {"type": "way", "id": 5, "center": {"lat": 18.9330, "lon": 72.8340}, "tags": {"name": "Near Netralaya", "amenity": "clinic"}},  # duplicate
+    {"type": "node", "id": 6, "lat": 18.9500, "lon": 72.8400, "tags": {"name": "Bad Site", "amenity": "clinic", "website": "not a url"}},
+]
+
+
+def test_osm_parsing_sorts_by_distance_and_never_invents_fields():
+    places = osm.parse_elements(OVERPASS_SAMPLE, 18.9322, 72.8353)
+    assert [p["name"] for p in places] == ["Near Netralaya", "Far Eye Hospital", "Bad Site"]
+    near, far, bad = places
+    assert near["phone"] is None and near["website"] is None and near["address"] is None
+    assert far["website"] == "https://farhospital.example.org"
+    assert far["address"] == "MG Road, Mumbai, 400001"
+    assert far["phone"] == "+91 22 1111 1111"
+    assert bad["website"] is None                                  # invalid URL is not shown
+    assert near["distance_km"] < far["distance_km"] < bad["distance_km"]
+    assert all(p["source"] == osm.SOURCE_LABEL for p in places)
+
+
+def test_osm_emergency_prefers_hospitals_with_emergency_tag():
+    elements = [
+        {"type": "node", "id": 1, "lat": 18.930, "lon": 72.830, "tags": {"name": "Close No-ER", "amenity": "hospital"}},
+        {"type": "node", "id": 2, "lat": 18.960, "lon": 72.860, "tags": {"name": "Farther With ER", "amenity": "hospital", "emergency": "yes"}},
+    ]
+    assert osm.parse_elements(elements, 18.93, 72.83, emergency=True)[0]["name"] == "Farther With ER"
+    assert osm.parse_elements(elements, 18.93, 72.83, emergency=False)[0]["name"] == "Close No-ER"
+
+
+def test_overpass_query_matches_specialty():
+    eye = osm.build_overpass_query("eye", 18.93, 72.83, 5000, emergency=False)
+    assert "ophthalm" in eye and "netralaya" in eye and "around:5000" in eye and "out center" in eye
+    assert 'amenity"="dentist' in osm.build_overpass_query("dental", 18.93, 72.83, 5000, False)
+    assert 'amenity"="hospital' in osm.build_overpass_query("eye", 18.93, 72.83, 5000, emergency=True)
+
+
+def test_osm_geocoding_and_errors(monkeypatch):
+    osm._geocode_cached.cache_clear()
+    calls = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append(params)
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: [{"lat": "18.9322", "lon": "72.8353"}])
+    monkeypatch.setattr(osm.requests, "get", fake_get)
+    assert osm.geocode("400001", None) == (18.9322, 72.8353)
+    assert calls[0]["postalcode"] == "400001" and calls[0]["country"] == "India"
+    osm.geocode("400001", None)
+    assert len(calls) == 1                                          # cached: polite to the public server
+
+    osm._geocode_cached.cache_clear()
+    monkeypatch.setattr(osm.requests, "get", lambda *a, **k: types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: []))
+    with pytest.raises(osm.LocationNotFound):
+        osm.geocode("999999", None)
+
+    osm._geocode_cached.cache_clear()
+    def boom(*a, **k):
+        raise osm.requests.ConnectionError("down")
+    monkeypatch.setattr(osm.requests, "get", boom)
+    with pytest.raises(PlacesUnavailable):
+        osm.geocode("400001", None)
+    osm._geocode_cached.cache_clear()
+
+
+def test_osm_search_widens_radius_once_and_falls_back_to_mirror(monkeypatch):
+    monkeypatch.setattr(osm, "geocode", lambda pin, loc: (18.9322, 72.8353))
+    radii = []
+
+    def fake_overpass(query):
+        radii.append(5000 if "around:5000" in query else 15000)
+        return OVERPASS_SAMPLE[:1] if len(radii) == 1 else OVERPASS_SAMPLE
+    monkeypatch.setattr(osm, "_run_overpass", fake_overpass)
+    places = osm.search_facilities("eye", "400001", None)
+    assert radii == [5000, 15000]                                  # too few at 5 km, so widened once
+    assert len(places) == 3
+
+    # mirror fallback inside _run_overpass
+    urls = []
+    def post(url, data=None, headers=None, timeout=None):
+        urls.append(url)
+        if len(urls) == 1:
+            raise osm.requests.ConnectionError("down")
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"elements": [1]})
+    monkeypatch.undo()
+    monkeypatch.setattr(osm.requests, "post", post)
+    assert osm._run_overpass("q") == [1] and len(urls) == 2
+
+
+NOMINATIM_SAMPLE = [
+    {"category": "amenity", "type": "hospital", "name": "Nominatim Eye Hospital", "lat": "18.9400", "lon": "72.8350",
+     "osm_type": "node", "osm_id": 11,
+     "extratags": {"phone": "+91 22 2222 2222", "website": "nominatimhospital.example.org"},
+     "address": {"road": "Colaba Road", "city": "Mumbai", "postcode": "400005"}},
+    {"category": "shop", "type": "optician", "name": "Not Healthcare Class", "lat": "18.94", "lon": "72.83"},
+    {"category": "amenity", "type": "restaurant", "name": "Eye Restaurant", "lat": "18.94", "lon": "72.83"},
+    {"category": "healthcare", "type": "clinic", "display_name": "Near Clinic, Mumbai", "lat": "18.9330", "lon": "72.8340",
+     "osm_type": "way", "osm_id": 12},
+]
+
+
+def test_nominatim_results_parse_and_filter_non_health_places():
+    places = osm.parse_nominatim_results(NOMINATIM_SAMPLE, 18.9322, 72.8353)
+    assert [p["name"] for p in places] == ["Near Clinic", "Nominatim Eye Hospital"]
+    far = places[1]
+    assert far["website"] == "https://nominatimhospital.example.org"
+    assert far["address"] == "Colaba Road, Mumbai, 400005"
+    assert places[0]["phone"] is None and places[0]["address"] is None
+
+
+def test_overpass_outage_falls_back_to_nominatim(monkeypatch):
+    monkeypatch.setattr(osm, "geocode", lambda pin, loc: (18.9322, 72.8353))
+    def down(query):
+        raise PlacesUnavailable("overpass down")
+    monkeypatch.setattr(osm, "_run_overpass", down)
+    monkeypatch.setattr(osm.requests, "get",
+                        lambda *a, **k: types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: NOMINATIM_SAMPLE))
+    places = osm.search_facilities("eye", "400001", None)
+    assert [p["name"] for p in places] == ["Near Clinic", "Nominatim Eye Hospital"]
+
+
+def test_everything_down_is_reported_as_unavailable(monkeypatch):
+    monkeypatch.setattr(osm, "geocode", lambda pin, loc: (18.9322, 72.8353))
+    def down(*a, **k):
+        raise PlacesUnavailable("down")
+    monkeypatch.setattr(osm, "_run_overpass", down)
+    def boom(*a, **k):
+        raise osm.requests.ConnectionError("down")
+    monkeypatch.setattr(osm.requests, "get", boom)
+    with pytest.raises(PlacesUnavailable):
+        osm.search_facilities("eye", "400001", None)

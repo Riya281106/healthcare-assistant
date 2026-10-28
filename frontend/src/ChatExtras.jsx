@@ -102,6 +102,11 @@ export function FacilityCards({ facilities, onChoose, disabled }) {
             <p className="facility-line">
               <strong>Address:</strong> {f.address || "not listed"}
             </p>
+            {f.distance_km != null && (
+              <p className="facility-line">
+                <strong>Distance:</strong> about {f.distance_km} km from your location
+              </p>
+            )}
             {f.phone && (
               <p className="facility-line">
                 <strong>Phone:</strong>{" "}

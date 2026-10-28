@@ -83,10 +83,10 @@ M = {
         "mr": "हा कोणता परिसर आहे ते मला समजले नाही. कृपया 6 अंकी PIN कोड किंवा परिसर आणि शहर सांगा (उदा. दादर, मुंबई).",
     },
     "results_intro": {
-        "en": "Here {count_phrase} for {what} near {where}. These details come from Google Maps listings, so please confirm timings and availability with the facility.",
-        "hinglish": "{where} ke paas {what} ke liye {count_phrase}. Yeh jaankari Google Maps listings se hai, isliye timing aur availability facility se confirm kar lein.",
-        "hi": "{where} के पास {what} के लिए {count_phrase}। यह जानकारी Google Maps लिस्टिंग से है, इसलिए समय और उपलब्धता अस्पताल से पुष्टि कर लें।",
-        "mr": "{where} जवळ {what} साठी {count_phrase}. ही माहिती Google Maps यादीतून आहे, म्हणून वेळ आणि उपलब्धता रुग्णालयाकडून खात्री करून घ्या.",
+        "en": "Here {count_phrase} for {what} near {where}. These details come from {source}, so please confirm phone, timings and availability with the facility.",
+        "hinglish": "{where} ke paas {what} ke liye {count_phrase}. Yeh jaankari {source} se hai, isliye phone, timing aur availability facility se confirm kar lein.",
+        "hi": "{where} के पास {what} के लिए {count_phrase}। यह जानकारी {source} से है, इसलिए फ़ोन, समय और उपलब्धता अस्पताल से पुष्टि कर लें।",
+        "mr": "{where} जवळ {what} साठी {count_phrase}. ही माहिती {source} मधून आहे, म्हणून फोन, वेळ आणि उपलब्धता रुग्णालयाकडून खात्री करून घ्या.",
     },
     "results_fewer": {
         "en": "I could only confirm {n} (fewer than five) in this area.",
