@@ -10,6 +10,10 @@ class ChatRequest(BaseModel):
     # read or write another person's health data by changing one number.
     message: str
 
+    # Language chosen in the UI selector: "auto" (default), "en", "hi", "mr",
+    # "hinglish" ... Unknown values are ignored (treated as "auto").
+    language: Optional[str] = "auto"
+
     @field_validator("message")
     @classmethod
     def validate_message(cls, v: str) -> str:

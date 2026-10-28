@@ -69,35 +69,24 @@ def _maps_search_link(name: str, address: str) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={query}"
 
 
-def search_medical_places(
+class PlacesUnavailable(Exception):
+    """The live search could not be completed (no key, network error, quota,
+    denied request). Different from "searched fine, zero results"."""
+
+
+def search_places_checked(
     query: str,
     place_type: str = "hospital",
     limit: int = 6,
 ) -> list:
     """
-    Search Google Places (Text Search) for hospitals / clinics /
-    pharmacies matching `query` (a free-text location description,
-    e.g. "hospitals in Andheri Mumbai" or "clinics near Dadar
-    Mumbai"). Returns a list of dicts:
-
-        {
-            "name": str,
-            "address": str,
-            "phone": str | None,
-            "website": str | None,
-            "maps_url": str,
-            "rating": float | None,
-            "open_now": bool | None,
-            "place_type": str,
-        }
-
-    Returns [] if the API key is missing, the request fails, or
-    there are no matches -- callers should treat that as "fall
-    back to the local database", not as an error to surface raw.
+    Like search_medical_places, but raises PlacesUnavailable when the search
+    could not run, so callers can tell "tool failed" from "nothing found"
+    and never present a failure as an empty-but-successful result.
     """
 
     if not is_configured():
-        return []
+        raise PlacesUnavailable("GOOGLE_PLACES_API_KEY is not configured")
 
     query = (query or "").strip()
 
@@ -117,15 +106,17 @@ def search_medical_places(
         response.raise_for_status()
         payload = response.json()
 
-    except requests.RequestException:
-        return []
+    except (requests.RequestException, ValueError) as exc:
+        raise PlacesUnavailable(type(exc).__name__) from exc
 
     status = payload.get("status")
 
-    if status not in ("OK", "ZERO_RESULTS"):
-        # OVER_QUERY_LIMIT / REQUEST_DENIED / INVALID_REQUEST etc.
-        # -- treat as "unavailable right now", not a hard error.
+    if status == "ZERO_RESULTS":
         return []
+
+    if status != "OK":
+        # OVER_QUERY_LIMIT / REQUEST_DENIED / INVALID_REQUEST etc.
+        raise PlacesUnavailable(f"places status {status}")
 
     results = payload.get("results", [])[:limit]
 
@@ -144,6 +135,7 @@ def search_medical_places(
 
         phone = None
         website = None
+        maps_url = _maps_search_link(name, address)
 
         if index < MAX_DETAILS_LOOKUPS:
             details = _place_details(place.get("place_id", ""))
@@ -159,10 +151,7 @@ def search_medical_places(
                 if details_hours and "open_now" in details_hours:
                     open_now = details_hours["open_now"]
 
-            maps_url = details.get("url") or _maps_search_link(name, address)
-
-        else:
-            maps_url = _maps_search_link(name, address)
+            maps_url = details.get("url") or maps_url
 
         places.append({
             "name": name,
@@ -173,6 +162,23 @@ def search_medical_places(
             "rating": rating,
             "open_now": open_now,
             "place_type": place_type,
+            "place_id": place.get("place_id"),
         })
 
     return places
+
+
+def search_medical_places(
+    query: str,
+    place_type: str = "hospital",
+    limit: int = 6,
+) -> list:
+    """
+    Backward-compatible wrapper: returns [] on any failure.
+    New code should use search_places_checked.
+    """
+
+    try:
+        return search_places_checked(query, place_type, limit)
+    except PlacesUnavailable:
+        return []

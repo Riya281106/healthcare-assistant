@@ -45,12 +45,21 @@ export async function apiRequest(path, options = {}) {
   return data;
 }
 
-export function sendChatMessage(message) {
+export function sendChatMessage(message, language = "auto") {
   // No user_id: the server identifies you from your login token.
   return apiRequest("/chat", {
     method: "POST",
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, language }),
   });
+}
+
+// What the assistant remembers for hospital search (PIN/area, language, last results).
+export function getCareNavState() {
+  return apiRequest("/care-navigation/state");
+}
+
+export function deleteCareNavState() {
+  return apiRequest("/care-navigation/state", { method: "DELETE" });
 }
 
 export function getSummary() {

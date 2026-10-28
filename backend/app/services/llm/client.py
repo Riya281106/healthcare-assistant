@@ -2,6 +2,7 @@ from openai import OpenAI
 from typing import List, Dict
 
 from app.services.llm.config import llm_settings
+from app.utils.language import get_reply_language, language_instruction
 
 _client = OpenAI(
     api_key=llm_settings.API_KEY,
@@ -17,6 +18,12 @@ def generate(messages: List[Dict[str, str]], system_instruction: str) -> str:
     text response. Contains NO prompt content and NO parsing logic —
     only the mechanics of calling the provider.
     """
+    # Answer in the language chosen for this request (set by the orchestrator).
+    # Utility callers (summaries, critique) run with no language set and are unchanged.
+    language_code = get_reply_language()
+    if language_code:
+        system_instruction = system_instruction + "\n\n" + language_instruction(language_code)
+
     full_messages = [{"role": "system", "content": system_instruction}] + messages
 
     response = _client.chat.completions.create(

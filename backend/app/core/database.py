@@ -248,6 +248,29 @@ def init_db():
 
 
     # ----------------------------------------------
+    # SESSION STATE (care navigation: location, shown facilities, language)
+    # Small JSON blobs, one row per (user, key). Users can view/delete them.
+    # ----------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_state (
+
+            user_id TEXT NOT NULL,
+
+            state_key TEXT NOT NULL,
+
+            state_json TEXT NOT NULL,
+
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            PRIMARY KEY (user_id, state_key)
+        )
+        """
+    )
+
+
+    # ----------------------------------------------
     # CONVERSATION SUMMARIES (Auto Summary feature)
     # ----------------------------------------------
 
@@ -1416,3 +1439,70 @@ def upsert_conversation_summary(
     connection.close()
 
     return get_conversation_summary(user_id)
+
+
+# ==================================================
+# SESSION STATE (care navigation)
+# ==================================================
+
+def get_session_state(user_id: str, state_key: str):
+    """Returns (state_dict, updated_at_text) or (None, None)."""
+
+    import json as _json
+
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            "SELECT state_json, updated_at FROM session_state WHERE user_id = ? AND state_key = ?",
+            (user_id, state_key)
+        ).fetchone()
+    finally:
+        connection.close()
+
+    if not row:
+        return None, None
+
+    try:
+        return _json.loads(row["state_json"]), row["updated_at"]
+    except ValueError:
+        return None, None
+
+
+def set_session_state(user_id: str, state_key: str, state: dict):
+
+    import json as _json
+
+    connection = get_connection()
+
+    try:
+        connection.execute(
+            """
+            INSERT INTO session_state (user_id, state_key, state_json, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, state_key)
+            DO UPDATE SET state_json = excluded.state_json, updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, state_key, _json.dumps(state, ensure_ascii=False))
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def delete_session_state(user_id: str, state_key: str = None):
+    """Delete one key, or everything for the user when state_key is None."""
+
+    connection = get_connection()
+
+    try:
+        if state_key is None:
+            connection.execute("DELETE FROM session_state WHERE user_id = ?", (user_id,))
+        else:
+            connection.execute(
+                "DELETE FROM session_state WHERE user_id = ? AND state_key = ?",
+                (user_id, state_key)
+            )
+        connection.commit()
+    finally:
+        connection.close()

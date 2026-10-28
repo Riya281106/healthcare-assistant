@@ -1,4 +1,7 @@
+import os
+
 from app.services.rag.vector_store import search_documents
+from app.utils.language import detect_language
 
 
 # A distance above this is treated as "not actually relevant" and
@@ -6,7 +9,44 @@ from app.services.rag.vector_store import search_documents
 # embedding function uses squared-L2 distance, where lower is closer;
 # this cutoff was picked empirically against the curated knowledge
 # base topics -- it can be tuned as the knowledge base grows.
-RELEVANCE_DISTANCE_CUTOFF = 1.6
+# Measured on this project's own knowledge base (28 Oct 2026): English questions the
+# base covers scored 0.55-0.92, English questions it does NOT cover scored 1.1-1.55.
+# 1.6 let wrong matches through (e.g. a drug-dose question matched the generic
+# pain-medicine page), so the default is now 1.0. Tune with RAG_DISTANCE_CUTOFF in .env
+# after re-running calibrate.py. Lower = stricter = more "I don't have that" answers.
+RELEVANCE_DISTANCE_CUTOFF = float(os.getenv("RAG_DISTANCE_CUTOFF", "1.0"))
+
+
+_TRANSLATE_PROMPT = (
+    "Translate the user's message into short, plain English for a medical knowledge-base "
+    "search. Output ONLY the English text. Do not answer it, explain it, or add anything."
+)
+
+
+def to_english_for_search(query: str) -> str:
+    """
+    The embedding model is English-focused: Hindi / Marathi questions found nothing
+    at all in calibration, Hinglish matched weakly. So non-English queries are
+    translated to English first (one short LLM call). If that fails for any reason
+    the original query is used, so retrieval never breaks because of translation.
+    Only the SEARCH query is translated; the user's message and the reply language
+    are untouched.
+    """
+
+    if detect_language(query) == "en":
+        return query
+
+    try:
+        from app.services.llm.client import generate
+
+        translated = (generate([{"role": "user", "content": query}], _TRANSLATE_PROMPT) or "").strip()
+    except Exception:
+        return query
+
+    if not translated or len(translated) > 300:
+        return query
+
+    return translated
 
 
 def retrieve(query: str, top_k: int = 3):
@@ -32,7 +72,7 @@ def retrieve(query: str, top_k: int = 3):
     if not query:
         return []
 
-    raw_results = search_documents(query, top_k=top_k)
+    raw_results = search_documents(to_english_for_search(query), top_k=top_k)
 
     retrieved = []
 

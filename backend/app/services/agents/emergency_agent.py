@@ -18,6 +18,7 @@
 from typing import Optional
 
 from app.utils.emergency_detector import EmergencyAssessment
+from app.utils.messages import tr
 
 CALL_NOW = (
     "This could be a medical emergency. Please call 112 (India's national "
@@ -40,6 +41,13 @@ FIRST_AID = {
     "STROKE": (
         "While you wait: note the exact time the symptoms began and tell the "
         "responders. Don't give food, drink or medicine by mouth."
+    ),
+    "EYE": (
+        "While you wait: don't rub or press on the eye and don't put in any "
+        "drops or ointment unless a doctor tells you to. If a chemical got "
+        "in the eye, rinse it with clean running water continuously until "
+        "help arrives. Ask to be taken to the nearest hospital with an eye "
+        "emergency (casualty) service."
     ),
     "BLEEDING": (
         "While you wait: press firmly on the wound with a clean cloth and "
@@ -97,7 +105,42 @@ DISCLAIMER = (
 )
 
 
-def build_emergency_text(assessment: Optional[EmergencyAssessment]) -> str:
+_LOCALIZED = ("hi", "mr", "hinglish")
+
+
+def _build_localized_text(assessment: Optional[EmergencyAssessment], lang: str) -> str:
+    """
+    Emergency text in Hindi / Marathi / Hinglish. Fixed wording, no LLM.
+    The detailed English first-aid lines are replaced by short, general
+    instructions (and an eye-specific line for eye emergencies) so the whole
+    message stays in one language. Wording is NOT clinician-reviewed.
+    """
+
+    if assessment is not None and assessment.categories == ["SELF_HARM"]:
+        return tr("self_harm", lang)
+
+    parts = [tr("emergency_call", lang)]
+
+    if assessment is not None and assessment.primary_category == "EYE":
+        parts.append(tr("emergency_eye", lang))
+    else:
+        parts.append(tr("emergency_wait", lang))
+
+    if assessment is not None and assessment.has_self_harm:
+        parts.append(tr("self_harm", lang))
+    else:
+        parts.append(tr("emergency_disclaimer", lang))
+
+    return "\n\n".join(parts)
+
+
+def build_emergency_text(
+    assessment: Optional[EmergencyAssessment],
+    lang: Optional[str] = "en"
+) -> str:
+
+    if lang in _LOCALIZED:
+        return _build_localized_text(assessment, lang)
 
     if assessment is None:
         return CALL_NOW + "\n\n" + DISCLAIMER
@@ -125,11 +168,12 @@ def build_emergency_text(assessment: Optional[EmergencyAssessment]) -> str:
 
 def run_emergency_agent(
     message: str,
-    assessment: Optional[EmergencyAssessment] = None
+    assessment: Optional[EmergencyAssessment] = None,
+    lang: Optional[str] = "en"
 ):
 
     return {
-        "response": build_emergency_text(assessment),
+        "response": build_emergency_text(assessment, lang),
         "urgency_tier": "emergency",
         "agent": "EMERGENCY_AGENT",
         "rag_used": False,

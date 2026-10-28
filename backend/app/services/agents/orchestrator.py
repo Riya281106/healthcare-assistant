@@ -5,17 +5,51 @@ from app.services.agents.urgent_agent import run_urgent_agent
 from app.services.agents.self_care_agent import run_self_care_agent
 from app.core.database import get_user_memories
 from app.core.logging_config import get_logger
+from app.utils.language import resolve_language, set_reply_language
+from app.utils.text_format import plain_text
 
 logger = get_logger("orchestrator")
+
+
+def _prepare_language(message: str, user_id: str, ui_language: str = None) -> str:
+    """
+    Decide the reply language and publish it for the LLM call sites.
+    Pure local rules plus one tiny DB read; never raises, never calls a model,
+    so it cannot delay an emergency reply.
+    """
+
+    stored = None
+    if user_id:
+        try:
+            from app.services.session_context import get_pref_language
+            stored = get_pref_language(user_id)
+        except Exception:
+            logger.exception("could not read language preference")
+
+    lang, to_store = resolve_language(message, ui_language=ui_language, stored=stored)
+
+    if user_id and to_store and to_store != stored:
+        try:
+            from app.services.session_context import set_pref_language
+            set_pref_language(user_id, to_store)
+        except Exception:
+            logger.exception("could not save language preference")
+
+    set_reply_language(lang)
+
+    return lang
 
 
 def orchestrate(
     message: str,
     history: list = None,
-    user_id: str = None
+    user_id: str = None,
+    ui_language: str = None
 ):
 
     history = history or []
+
+    lang = _prepare_language(message, user_id, ui_language)
 
     # ==========================================
     # EMERGENCY SAFETY NET -- ALWAYS FIRST
@@ -38,10 +72,42 @@ def orchestrate(
         )
 
         return build_standard_response(
-            result=run_emergency_agent(message, assessment),
+            result=run_emergency_agent(message, assessment, lang),
             intent="EMERGENCY",
-            next_action="EMERGENCY_AGENT"
+            next_action="EMERGENCY_AGENT",
+            language=lang
         )
+
+    # ==========================================
+    # CARE NAVIGATION: hospital / clinic discovery + appointment help.
+    # A controlled workflow (no LLM decides the steps). Runs after the
+    # emergency check and before general routing. Any failure here is
+    # logged and the message continues down the normal path.
+    # ==========================================
+
+    if user_id:
+
+        try:
+
+            from app.services.session_context import remember_location
+            from app.services.agents.care_navigator import handle as care_navigation
+
+            remember_location(user_id, message)
+
+            navigation = care_navigation(message=message, user_id=user_id, lang=lang)
+
+            if navigation is not None:
+
+                return build_standard_response(
+                    result=navigation,
+                    intent="HOSPITAL",
+                    next_action="CARE_NAVIGATOR",
+                    language=lang
+                )
+
+        except Exception:
+
+            logger.exception("care navigation failed; continuing with normal routing")
 
     # ==========================================
     # NORMALIZE CONVERSATION HISTORY
@@ -327,7 +393,8 @@ def orchestrate(
 def build_standard_response(
     result,
     intent,
-    next_action
+    next_action,
+    language=None
 ):
 
     if isinstance(result, str):
@@ -360,14 +427,16 @@ def build_standard_response(
             "sources": []
         }
 
-    return {
-        "response": result.get(
-            "response",
-            result.get(
-                "message",
-                "I am sorry, I could not generate a response."
-            )
-        ),
+    response_text = result.get(
+        "response",
+        result.get(
+            "message",
+            "I am sorry, I could not generate a response."
+        )
+    )
+
+    standard = {
+        "response": plain_text(response_text),
 
         "intent": intent,
 
@@ -393,3 +462,13 @@ def build_standard_response(
             []
         )
     }
+
+    # Structured extras used by the UI (facility cards, booking button, language).
+    if language:
+        standard["language"] = language
+
+    for extra_key in ("facilities", "ui", "booking_url", "booking_verified"):
+        if extra_key in result:
+            standard[extra_key] = result[extra_key]
+
+    return standard

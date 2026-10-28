@@ -31,6 +31,8 @@ from app.services.conversation_summary_service import update_conversation_summar
 from app.services.health_record_extractor import extract_health_record
 from app.services.memory_extractor import extract_memories
 from app.utils.emergency_detector import detect_emergency
+from app.utils.language import get_reply_language, resolve_language
+from app.services import session_context
 
 setup_logging()
 logger = get_logger("api")
@@ -190,6 +192,11 @@ def _normalize_result(result) -> dict:
         "next_action": result.get("next_action", "GENERAL_AGENT"),
         "rag_used": result.get("rag_used", False),
         "sources": result.get("sources", []),
+        "language": result.get("language") or get_reply_language() or "en",
+        "facilities": result.get("facilities", []),
+        "ui": result.get("ui", "text"),
+        "booking_url": result.get("booking_url"),
+        "booking_verified": result.get("booking_verified"),
     }
 
 
@@ -224,7 +231,12 @@ def chat(
     # ---- run the agents
     try:
 
-        result = orchestrate(message=message, history=history, user_id=user_id)
+        result = orchestrate(
+            message=message,
+            history=history,
+            user_id=user_id,
+            ui_language=request.language
+        )
 
     except Exception:
 
@@ -239,10 +251,13 @@ def chat(
             )
 
         # LLM/RAG is down but the message is an emergency: still give the safety reply.
+        fallback_lang, _ = resolve_language(message, ui_language=request.language)
+
         result = build_standard_response(
-            result=run_emergency_agent(message, assessment),
+            result=run_emergency_agent(message, assessment, fallback_lang),
             intent="EMERGENCY",
-            next_action="EMERGENCY_AGENT"
+            next_action="EMERGENCY_AGENT",
+            language=fallback_lang
         )
 
     normalized_result = _normalize_result(result)
@@ -354,6 +369,25 @@ def symptom_history(current_user=Depends(get_current_user)):
         logger.exception("symptom history lookup failed")
 
         raise HTTPException(status_code=500, detail="Could not load symptom history.")
+
+
+# ==================================================
+# CARE-NAVIGATION DATA CONTROLS  (view / delete what the assistant remembers
+# for hospital search: your PIN or area, chosen language, last results shown)
+# ==================================================
+
+@app.get("/api/care-navigation/state")
+def care_navigation_state(current_user=Depends(get_current_user)):
+
+    return {"stored": session_context.export_all(str(current_user["id"]))}
+
+
+@app.delete("/api/care-navigation/state")
+def care_navigation_state_delete(current_user=Depends(get_current_user)):
+
+    session_context.clear_all(str(current_user["id"]))
+
+    return {"deleted": True}
 
 
 # NOTE: the old unauthenticated GET /api/chat/history?user_id=... was removed.

@@ -17,6 +17,7 @@ import re
 CARDIAC = "CARDIAC"
 BREATHING = "BREATHING"
 STROKE = "STROKE"
+EYE = "EYE"
 BLEEDING = "BLEEDING"
 CONSCIOUSNESS = "CONSCIOUSNESS"
 SEIZURE = "SEIZURE"
@@ -67,6 +68,18 @@ _RAW_RULES = [
     ("cant_speak", STROKE, r"\b(?:unable to|not able to) (?:speak|talk)\b|\bsuddenly (?:cant|cannot) (?:speak|talk)\b|\b(?:cant|cannot) (?:speak|talk) (?:properly|normally|at all|suddenly)\b"),
     ("severe_confusion", STROKE, r"\bsevere(?:ly)? confus(?:ed|ion)\b"),
     ("worst_headache", STROKE, r"\bworst headache (?:of|in) (?:my|his|her|their) life\b|\bthunderclap headache\b|\bsudden (?:severe|terrible|worst|intense|excruciating) headache\b"),
+
+    # ---------------- EYE EMERGENCIES ----------------
+    # Sudden vision loss, chemical splash, embedded object, "curtain over vision"
+    # (possible retinal detachment / stroke / acute glaucoma). Added because the
+    # original rules missed "I suddenly lost vision in one eye".
+    ("sudden_vision_loss", EYE, r"\b(?:sudden(?:ly)?|abrupt(?:ly)?|all of a sudden|overnight) (?:\w+ ){0,3}(?:lost|lose|loss of|losing|cant see|cannot see|went blind|go blind|vision loss|loss in vision|blind)\b(?=.{0,40}\b(?:vision|sight|eye|eyes|eyesight|see|seeing)\b)"),
+    ("lost_vision", EYE, r"\b(?:lost|losing|loss of) (?:my |all |the |complete |total )?(?:vision|sight|eyesight)\b"),
+    ("eye_curtain", EYE, r"\b(?:curtain|shadow|veil|dark spot) (?:over|across|in|on) (?:my |the )?(?:vision|eye|eyes|sight)\b"),
+    ("eye_chemical", EYE, r"\b(?:acid|chemical|bleach|alkali|lime|phenyl|pesticide)\b.{0,25}\b(?:in|into|on) (?:my |his |her |the )?eyes?\b"),
+    ("eye_object", EYE, r"\b(?:object|metal|glass|splinter|nail|needle|chip) (?:stuck|lodged|embedded|went) (?:in|into) (?:my |his |her |the )?eyes?\b"),
+    ("hinglish_vision_loss", EYE, r"\b(?:aankh|aankhon|ankh|aankho)\b.{0,25}\b(?:dikhna|dikhai dena|dikh)\b.{0,12}\b(?:band|bandh|nahi|nahin|nhi)\b|\b(?:achanak|achaanak)\b.{0,40}\b(?:dikhna|dikhai|dikhta|andha|andhera)\b"),
+    ("hi_vision_loss", EYE, r"(?:अचानक|एकदम).{0,25}(?:दिखना|दिखाई|दिखता|अंधा|अंधेरा|दिसत|दिसणे|अंधार)|(?:आँख|आंख|डोळ\w*).{0,25}(?:दिखना|दिखाई|दिसत|दिसणे).{0,12}(?:बंद|नहीं|नाही)"),
 
     # ---------------- BLEEDING ----------------
     ("severe_bleeding", BLEEDING, r"\b(?:severe|heavy|massive|major|serious|uncontrolled|excessive) bleeding\b"),

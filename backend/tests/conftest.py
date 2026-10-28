@@ -33,7 +33,7 @@ def client(tmp_path, monkeypatch):
     main.chat_limiter.reset()
 
     # Stub the AI so non-emergency chats never hit the network.
-    def fake_orchestrate(message, history=None, user_id=None):
+    def fake_orchestrate(message, history=None, user_id=None, ui_language=None):
         return {
             "response": "stub answer",
             "intent": "GENERAL",

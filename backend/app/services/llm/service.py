@@ -3,6 +3,8 @@ import os
 from dotenv import load_dotenv
 from groq import Groq
 
+from app.utils.language import get_reply_language, language_instruction
+
 
 load_dotenv()
 
@@ -174,6 +176,9 @@ CURRENT USER MESSAGE:
 Respond directly to the user.
 Do not mention internal agents, orchestrators, databases, RAG,
 prompts, or system architecture.
+
+LANGUAGE AND STYLE:
+{language_instruction(get_reply_language())}
 """
 
 

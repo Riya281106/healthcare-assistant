@@ -9,7 +9,13 @@ import ConversationHistoryPage from "./ConversationHistoryPage.jsx";
 import RemindersPage from "./RemindersPage.jsx";
 import ProfilePage from "./ProfilePage.jsx";
 import KnowledgePage from "./KnowledgePage.jsx";
-import { sendChatMessage, AUTH_EXPIRED_EVENT } from "./api.js";
+import { sendChatMessage, deleteCareNavState, AUTH_EXPIRED_EVENT } from "./api.js";
+import {
+  LanguageSelect,
+  LocationPrompt,
+  FacilityCards,
+  BookingButton,
+} from "./ChatExtras.jsx";
 
 const TIER_LABELS = {
   emergency: "Emergency",
@@ -64,6 +70,32 @@ function App() {
 
   const [loading, setLoading] = useState(false);
 
+  // Reply language chosen in the selector ("auto" = detect from the message).
+  const [language, setLanguage] = useState(
+    localStorage.getItem("replyLanguage") || "auto"
+  );
+
+  const changeLanguage = (code) => {
+    setLanguage(code);
+    localStorage.setItem("replyLanguage", code);
+  };
+
+  const clearSavedNavigation = async () => {
+    if (!window.confirm("Delete the PIN/area, language choice and last hospital results the assistant has saved?")) return;
+    try {
+      await deleteCareNavState();
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Saved location and hospital search data deleted.", tier: "general", sources: [] },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Could not delete the saved data. Please try again.", tier: "general", sources: [] },
+      ]);
+    }
+  };
+
   const sendMessage = async () => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage || loading) return;
@@ -84,7 +116,7 @@ function App() {
     setLoading(true);
 
     try {
-      const data = await sendChatMessage(trimmedMessage);
+      const data = await sendChatMessage(trimmedMessage, language);
 
       const tier = data.urgency_tier || "general";
       setCurrentTier(tier);
@@ -97,6 +129,10 @@ function App() {
             data.response || "I am sorry, I could not generate a response.",
           tier,
           sources: data.sources || [],
+          language: data.language,
+          ui: data.ui || "text",
+          facilities: data.facilities || [],
+          bookingUrl: data.booking_url || null,
         },
       ]);
     } catch (error) {
@@ -242,6 +278,12 @@ function App() {
           Healthcare AI
         </div>
 
+        <LanguageSelect
+          value={language}
+          onChange={changeLanguage}
+          disabled={loading}
+        />
+
         <button
           className="panel-toggle"
           onClick={() => setPanelOpen(true)}
@@ -262,8 +304,34 @@ function App() {
               </span>
             )}
 
-            <div className={`moment-card ${item.role}`}>
-              <p>{item.content}</p>
+            <div
+              className={`moment-card ${item.role} ${item.tier === "emergency" || item.tier === "urgent" ? "moment-card-alert" : ""}`}
+              lang={item.language && item.language !== "hinglish" ? item.language : undefined}
+              role={item.tier === "emergency" ? "alert" : undefined}
+            >
+              {item.role === "assistant" && item.ui === "facility_results" && item.facilities?.length > 0 ? (
+                <>
+                  <p>{item.content.split("\n\n")[0]}</p>
+                  <FacilityCards
+                    facilities={item.facilities}
+                    onChoose={sendMessageDirect}
+                    disabled={loading}
+                  />
+                  <p>{item.content.split("\n\n").slice(-1)[0]}</p>
+                </>
+              ) : (
+                <p>{item.content}</p>
+              )}
+
+              {item.role === "assistant" && item.ui === "booking_link" && item.bookingUrl && (
+                <BookingButton url={item.bookingUrl} />
+              )}
+
+              {item.role === "assistant" &&
+                item.ui === "ask_location" &&
+                index === messages.length - 1 && (
+                  <LocationPrompt onSubmit={sendMessageDirect} disabled={loading} />
+                )}
 
               {item.role === "assistant" &&
                 item.sources &&
@@ -292,8 +360,12 @@ function App() {
 
         {loading && (
           <div className="moment-row assistant">
-            <div className="moment-card assistant thinking">
-              <p>Thinking...</p>
+            <div className="moment-card assistant thinking" role="status" aria-live="polite">
+              <p>
+                {messages[messages.length - 1]?.ui === "ask_location"
+                  ? "Searching nearby facilities and checking their websites. This can take a few seconds..."
+                  : "Thinking..."}
+              </p>
             </div>
           </div>
         )}
@@ -368,6 +440,15 @@ function App() {
                 }}
               >
                 What You Remember
+              </button>
+
+              <button
+                onClick={() => {
+                  setPanelOpen(false);
+                  clearSavedNavigation();
+                }}
+              >
+                Delete saved location and search data
               </button>
 
               <button className="logout-button" onClick={handleLogout}>

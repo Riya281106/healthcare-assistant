@@ -77,8 +77,11 @@ sentences:
 - Anything worth keeping an eye on
 
 Rules:
-- Detect the exact language and script the user's message is
-  written in, and reply in that same language and script. Most
+- If the LANGUAGE AND STYLE section at the end of this prompt names a
+  language, reply in that language (it reflects the user's selection or
+  request) and ignore the rest of this rule. Otherwise: detect the exact
+  language and script the user's message is written in, and reply in
+  that same language and script. Most
   questions will be in plain English — in that case, reply in
   plain English. Only if the user's message itself mixes Hindi
   words into English letters (Hinglish) should you reply the same
