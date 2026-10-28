@@ -126,3 +126,10 @@ def export_all(user_id: str) -> dict:
         if state:
             out[key] = {"data": state, "updated_at": updated}
     return out
+
+
+def clear_pref_language(user_id: str) -> None:
+    try:
+        delete_session_state(user_id, PREF_LANGUAGE)
+    except Exception:
+        logger.exception("could not clear language preference")

@@ -5,7 +5,7 @@ from app.services.agents.urgent_agent import run_urgent_agent
 from app.services.agents.self_care_agent import run_self_care_agent
 from app.core.database import get_user_memories
 from app.core.logging_config import get_logger
-from app.utils.language import resolve_language, set_reply_language
+from app.utils.language import resolve_language, set_language_pinned, set_reply_language
 from app.utils.text_format import plain_text
 
 logger = get_logger("orchestrator")
@@ -21,12 +21,19 @@ def _prepare_language(message: str, user_id: str, ui_language: str = None) -> st
     stored = None
     if user_id:
         try:
-            from app.services.session_context import get_pref_language
-            stored = get_pref_language(user_id)
+            from app.services.session_context import clear_pref_language, get_pref_language
+
+            if ui_language == "reset":
+                # The user picked "Auto" in the selector: forget the saved choice.
+                clear_pref_language(user_id)
+            else:
+                stored = get_pref_language(user_id)
         except Exception:
             logger.exception("could not read language preference")
 
     lang, to_store = resolve_language(message, ui_language=ui_language, stored=stored)
+
+    set_language_pinned(bool(to_store or stored))
 
     if user_id and to_store and to_store != stored:
         try:

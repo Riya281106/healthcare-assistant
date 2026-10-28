@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import "./App.css";
 import Auth from "./Auth.jsx";
 import HealthRecordsPage from "./HealthRecordsPage.jsx";
@@ -75,9 +75,14 @@ function App() {
     localStorage.getItem("replyLanguage") || "auto"
   );
 
+  // When the user picks "Auto" by hand, tell the server once to forget a saved
+  // language choice (otherwise "reply in Marathi" would stay on invisibly).
+  const resetLanguageNext = useRef(false);
+
   const changeLanguage = (code) => {
     setLanguage(code);
     localStorage.setItem("replyLanguage", code);
+    resetLanguageNext.current = code === "auto";
   };
 
   const clearSavedNavigation = async () => {
@@ -116,7 +121,16 @@ function App() {
     setLoading(true);
 
     try {
-      const data = await sendChatMessage(trimmedMessage, language);
+      const languageToSend = resetLanguageNext.current ? "reset" : language;
+      resetLanguageNext.current = false;
+
+      const data = await sendChatMessage(trimmedMessage, languageToSend);
+
+      // Show a lasting language choice (e.g. "reply in Marathi") in the selector.
+      if (data.language_pinned && language === "auto" && data.language) {
+        setLanguage(data.language);
+        localStorage.setItem("replyLanguage", data.language);
+      }
 
       const tier = data.urgency_tier || "general";
       setCurrentTier(tier);

@@ -604,3 +604,50 @@ def test_translation_failure_falls_back_to_original_query(monkeypatch):
         raise RuntimeError("provider down")
     monkeypatch.setattr(client_module, "generate", down)
     assert retriever.to_english_for_search("सर्दी जुकाम में क्या करें") == "सर्दी जुकाम में क्या करें"
+
+
+# ----------------------------------------------------------------------------
+# Regression tests from the first live run (screenshots)
+# ----------------------------------------------------------------------------
+
+def test_failed_search_does_not_leave_flow_stuck_waiting_for_location(real, alice, monkeypatch):
+    """Live bug: after 'search not set up', 'book hospital 2' fell through to the old agent."""
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    chat(real, alice, "I have eye pain. Find nearby eye hospitals.")
+    chat(real, alice, "no")
+    chat(real, alice, "400001")                       # search cannot run (no key)
+    data = chat(real, alice, "I want to book an appointment at Hospital 2.")
+    assert data["agent"] == "CARE_NAVIGATOR"          # not the old hospital agent
+    assert "PIN code or area" in data["response"]
+
+
+def test_booking_request_while_waiting_for_location_is_not_swallowed(real, alice, places):
+    chat(real, alice, "Find eye clinics near me")     # now waiting for a location
+    data = chat(real, alice, "I want to book an appointment at Hospital 2.")
+    assert data["agent"] == "CARE_NAVIGATOR"
+    assert "PIN code or area" in data["response"]
+
+
+def test_place_name_with_pin_keeps_both(real, alice, places):
+    chat(real, alice, "Find eye clinics near me")
+    chat(real, alice, "andheri east mumbai 400093")
+    assert "andheri east mumbai" in places.queries[-1].lower()
+    assert "400093" in places.queries[-1]
+
+
+def test_maps_suggestion_is_an_english_query_even_in_marathi(real, alice, monkeypatch):
+    monkeypatch.setattr(nav, "is_configured", lambda: False)
+    data = chat(real, alice, "Find eye hospitals near 400001", language="mr")
+    assert "eye clinics and hospitals near 400001" in data["response"]
+
+
+def test_language_choice_is_visible_and_can_be_reset(real, alice, llm):
+    chat(real, alice, "Meri aankh mein dard ho raha hai.")
+    data = chat(real, alice, "Please explain in Marathi.")
+    assert data["language"] == "mr" and data["language_pinned"] is True
+    data = chat(real, alice, "ok thanks")             # selector still "auto": preference stays
+    assert data["language"] == "mr" and data["language_pinned"] is True
+    data = chat(real, alice, "What is a fever?", language="reset")   # user picked Auto by hand
+    assert data["language"] == "en" and data["language_pinned"] is False
+    data = chat(real, alice, "ok thanks")
+    assert data["language"] == "en"

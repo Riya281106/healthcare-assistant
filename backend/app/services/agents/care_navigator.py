@@ -162,11 +162,12 @@ def extract_location(message: str, allow_bare: bool = False) -> Dict[str, Option
             if not _FACILITY_NOUN.search(candidate) and not detect_specialty(candidate):
                 locality = candidate
 
-    if not locality and not pin and allow_bare:
-        bare = re.sub(r"[^\w\s,\-\u0900-\u097F]", " ", text).strip()
+    if not locality and allow_bare:
+        # "Dadar" or "andheri east mumbai 400093": a short reply that is only a place (plus PIN)
+        bare = re.sub(r"[^\w\s,\-\u0900-\u097F]", " ", PIN_RE.sub(" ", text)).strip()
         words = bare.split()
         if 1 <= len(words) <= 5 and not _STOP_LOCALITY.search(bare) and not text.endswith("?"):
-            locality = bare.strip(" ,")
+            locality = " ".join(words).strip(" ,")
 
     return {"pin": pin, "locality": locality}
 
@@ -319,9 +320,16 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
     where = _where_text(pin, locality)
     what = what_label(spec.key, lang)
 
+    # The Maps suggestion must be an English query, not the translated label.
+    maps_what = what_label(spec.key, "en")
+
+    # Whatever happens next, the flow is no longer "waiting for a location":
+    # remember what the user told us and reset the step.
+    save_care_state(user_id, {"stage": "none", "specialty": spec.key, "pin": pin, "locality": locality, "facilities": []})
+
     if not is_configured():
         logger.warning("hospital search requested but GOOGLE_PLACES_API_KEY is not set")
-        return _reply(tr("search_not_configured", lang, what=what, where=where), ui="notice")
+        return _reply(tr("search_not_configured", lang, what=maps_what, where=where), ui="notice")
 
     try:
         raw = search_places_checked(
@@ -331,7 +339,7 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
         )
     except PlacesUnavailable as exc:
         logger.warning("places search unavailable: %s", exc)
-        return _reply(tr("search_unavailable", lang, what=what, where=where), ui="notice")
+        return _reply(tr("search_unavailable", lang, what=maps_what, where=where), ui="notice")
 
     seen, cleaned = set(), []
     for place in raw:
@@ -440,17 +448,21 @@ def handle(message: str, user_id: str, lang: str = "en") -> Optional[dict]:
 
     # 3. Waiting for a location.
     if stage == "awaiting_location":
-        loc = extract_location(text, allow_bare=True)
-        # A long sentence or a question without a PIN is an unrelated message
-        # ("why does fever happen at night?"), not an answer to "which area?".
-        if not loc["pin"] and (text.endswith("?") or len(text.split()) > 7):
-            return None
+        other_intent = is_booking_request(text) or is_facility_search(text)
+        loc = extract_location(text, allow_bare=not other_intent)
         if loc["pin"] or loc["locality"]:
-            return _run_search(
-                user_id, state, state.get("specialty") or "general",
-                loc["pin"], loc["locality"], lang, emergency=bool(state.get("emergency")),
-            )
-        return _reply(tr("ask_clarify_location", lang), ui="ask_location")
+            # A long sentence or a question without a PIN is not an answer to "which area?"
+            long_or_question = text.endswith("?") or len(text.split()) > 7
+            if loc["pin"] or not long_or_question:
+                return _run_search(
+                    user_id, state, state.get("specialty") or "general",
+                    loc["pin"], loc["locality"], lang, emergency=bool(state.get("emergency")),
+                )
+        if not other_intent:
+            if text.endswith("?") or len(text.split()) > 7:
+                return None  # unrelated question: leave the state, answer normally
+            return _reply(tr("ask_clarify_location", lang), ui="ask_location")
+        # otherwise fall through: a booking request or a new search is handled below
 
     # 4. Booking request.
     if is_booking_request(text) and (facilities or not is_facility_search(text)):

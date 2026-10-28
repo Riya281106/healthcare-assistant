@@ -31,7 +31,7 @@ from app.services.conversation_summary_service import update_conversation_summar
 from app.services.health_record_extractor import extract_health_record
 from app.services.memory_extractor import extract_memories
 from app.utils.emergency_detector import detect_emergency
-from app.utils.language import get_reply_language, resolve_language
+from app.utils.language import get_language_pinned, get_reply_language, resolve_language
 from app.services import session_context
 
 setup_logging()
@@ -193,6 +193,7 @@ def _normalize_result(result) -> dict:
         "rag_used": result.get("rag_used", False),
         "sources": result.get("sources", []),
         "language": result.get("language") or get_reply_language() or "en",
+        "language_pinned": get_language_pinned(),
         "facilities": result.get("facilities", []),
         "ui": result.get("ui", "text"),
         "booking_url": result.get("booking_url"),

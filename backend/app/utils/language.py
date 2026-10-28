@@ -214,3 +214,16 @@ def set_reply_language(code: Optional[str]):
 
 def get_reply_language() -> Optional[str]:
     return _reply_language.get()
+
+
+# True when the reply language is a lasting choice (selector, "reply in Marathi",
+# or a saved preference), so the UI can show it instead of "Auto".
+_language_pinned: ContextVar[bool] = ContextVar("language_pinned", default=False)
+
+
+def set_language_pinned(value: bool):
+    return _language_pinned.set(value)
+
+
+def get_language_pinned() -> bool:
+    return _language_pinned.get()

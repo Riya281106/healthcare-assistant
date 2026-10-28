@@ -64,3 +64,13 @@ Backend: 160 passed (116 existing + 44 new). Frontend: production build succeeds
   hospital verification beyond Google listing data, chat-history display of facility cards after reload.
 - Facility data is Google Maps listing data. Phone/timing may be outdated; the reply says so.
 - Rate limit and state are per server process / SQLite file.
+
+## Fixes after the first live run (28 Oct 2026)
+- Test D: retrieval stub now covers lazily imported agents; knowledge-base cutoff lowered to 1.0 (`RAG_DISTANCE_CUTOFF`);
+  non-English questions are translated to English before the knowledge-base search. Re-run `python calibrate.py` to tune.
+- After a failed/unconfigured hospital search the flow no longer stays "waiting for a location" (it used to hand
+  "book hospital 2" to the old agent). A booking request or new search is no longer swallowed while waiting for a location.
+- "andheri east mumbai 400093" keeps both the place and the PIN.
+- The Google Maps suggestion in failure messages is always an English query.
+- Language choice is shown in the selector after "reply in Marathi"; choosing Auto by hand clears the saved choice.
+- Backend tests: 169 passed.
