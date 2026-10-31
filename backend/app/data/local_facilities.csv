@@ -1,0 +1,7 @@
+# LOCAL VERIFIED DIRECTORY -- add clinics here after YOU have checked them (call the clinic or read its own website).
+# The app shows exactly what you write. Never guess a phone number or website.
+# specialty: one or more words separated by ; or ,   e.g.  dermatology;skin   |   eye   |   dental   |   general
+# booking_url: the clinic's OWN online booking page (leave empty if it has none).   verified_on: the date you checked.
+# Example row (copy the pattern, use REAL checked details, and delete this line):
+# Example Skin Clinic,dermatology;skin,"Shop 1, Example Road, Kandivali East",400101,Kandivali East,022 0000 0000,https://example.com,,2026-10-29
+name,specialty,address,pin,locality,phone,website,booking_url,verified_on
