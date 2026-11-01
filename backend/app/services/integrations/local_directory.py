@@ -7,7 +7,7 @@ free alternative. YOU add a clinic only after checking its details yourself (cal
 read its own website). The app shows exactly what you wrote and never adds anything.
 
 File: backend/app/data/local_facilities.csv   (override with LOCAL_FACILITIES_FILE in .env)
-Columns: name, specialty, address, pin, locality, phone, website, booking_url, verified_on
+Columns: name, specialty, address, pin, locality, phone, website, booking_url, verified_on, source_note (optional)
   specialty   one or more words separated by ; or ,   e.g.  dermatology;skin   or   eye   or   general
   pin         6-digit PIN code of the clinic
   locality    area name, e.g. Kandivali East
@@ -143,7 +143,7 @@ def _to_place(row: dict) -> dict:
         "maps_url": "https://www.google.com/maps/search/?api=1&query=" + query,
         "rating": None,
         "open_now": None,
-        "source": f"{SOURCE_LABEL} (checked {verified})" if verified else SOURCE_LABEL,
+        "source": row.get("source_note") or (f"{SOURCE_LABEL} (checked {verified})" if verified else SOURCE_LABEL),
         "distance_km": None,
         "place_id": "local:" + _norm(row["name"]),
         "booking_url": row.get("booking_url") or None,

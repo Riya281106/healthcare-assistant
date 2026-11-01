@@ -44,7 +44,7 @@ from app.utils.red_flag_rules import (
 # Order used to pick the "primary" category when several fire at once.
 _CATEGORY_PRIORITY = [
     "CARDIAC", "BREATHING", "CHOKING", "ALLERGIC", "STROKE", "EYE", "BLEEDING",
-    "CONSCIOUSNESS", "SEIZURE", "POISONING", "SNAKEBITE", "DROWNING", "INFANT",
+    "CONSCIOUSNESS", "SEIZURE", "POISONING", "SNAKEBITE", "DROWNING", "INFANT", "INTERNAL_BLEED", "PREGNANCY_BLEED",
     "SELF_HARM", "GENERAL",
 ]
 

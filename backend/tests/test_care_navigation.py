@@ -901,3 +901,24 @@ def test_everything_down_is_reported_as_unavailable(monkeypatch):
     monkeypatch.setattr(osm.requests, "get", boom)
     with pytest.raises(PlacesUnavailable):
         osm.search_facilities("eye", "400001", None)
+
+
+def test_locality_search_is_not_biased_towards_maharashtra_and_other_states_are_refused(monkeypatch):
+    osm._geocode_cached.cache_clear()
+    seen = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen.append(params)
+        return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: [
+            {"lat": "12.9716", "lon": "77.5946", "address": {"state": "Karnataka"}}])
+    monkeypatch.setattr(osm.requests, "get", fake_get)
+    with pytest.raises(osm.OutsideMaharashtra):
+        osm.geocode(None, "Bangalore")
+    assert "Maharashtra" not in seen[0]["q"]
+
+    osm._geocode_cached.cache_clear()
+    monkeypatch.setattr(osm.requests, "get", lambda *a, **k: types.SimpleNamespace(
+        raise_for_status=lambda: None, json=lambda: [{"lat": "18.5204", "lon": "73.8567", "address": {"state": "Maharashtra"}}]))
+    assert osm.geocode(None, "Kothrud, Pune") == (18.5204, 73.8567)
+    osm._geocode_cached.cache_clear()
+

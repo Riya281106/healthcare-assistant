@@ -30,7 +30,7 @@ Show the **How I handled this** line under a reply when asked "where is the agen
 
 * `python eval_safety.py`: 52 of 52 real emergencies detected, 0 of 30 harmless messages flagged **on the fixed list in `tests/safety_cases.py`**. Say "on my test list", not "100% accurate".
 * The original detector missed 23 of 43 emergencies on an earlier list; the review found more gaps (self-harm phrased as "i dont wanna live", "swallowed 15 sleeping pills", snake bite, vomiting blood, newborn fever) and they are now covered by tests.
-* 351 automated tests pass (LLM and map servers stubbed).
+* 355 automated tests pass (LLM and map servers stubbed).
 
 ## 3. Likely questions
 
@@ -59,4 +59,4 @@ Clinician review of the first-aid text; native-speaker review of Hindi and Marat
 
 ## 4. Add real, verified hospitals (recommended before the viva)
 
-For the 8 to 10 hospitals near your college or home, open the hospital's own website, copy its phone number and booking page, and add a row to `backend/app/data/local_facilities.csv`. The app shows exactly what you write, first, with your `verified_on` date. Do not copy numbers from memory.
+For the 8 to 10 hospitals near your college or home, open the hospital's own website, copy its phone number and booking page, and add a row to `backend/app/data/local_facilities.csv`. The app shows exactly what you write, first, with your `verified_on` date. Do not copy numbers from memory. The file already contains 52 Maharashtra hospitals from a union's panel list, labelled "not checked with the hospital"; promote the ones you check by filling `verified_on` and clearing `source_note`.

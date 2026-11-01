@@ -28,6 +28,8 @@ SELF_HARM = "SELF_HARM"
 SNAKEBITE = "SNAKEBITE"
 DROWNING = "DROWNING"
 INFANT = "INFANT"
+INTERNAL_BLEED = "INTERNAL_BLEED"
+PREGNANCY_BLEED = "PREGNANCY_BLEED"
 GENERAL = "GENERAL"
 
 # Categories where "I don't want to die" style denials must NOT silence the alert
@@ -90,7 +92,7 @@ _RAW_RULES = [
     ("wont_stop_bleeding", BLEEDING, r"\b(?:bleeding|blood) (?:wont|will not|doesnt|does not|cant be) (?:stop|be stopped)\b|\bwont stop bleeding\b"),
     ("blood_everywhere", BLEEDING, r"\b(?:lot of blood|lots of blood|blood everywhere|soaked in blood|pool of blood|losing (?:a lot of )?blood)\b"),
     ("major_injury", BLEEDING, r"\b(?:major|serious|severe) (?:injury|accident|trauma|head injury)\b|\bhit (?:my|his|her) head (?:hard|badly)\b"),
-    ("pregnancy_bleeding", BLEEDING, r"\b(?:pregnant|pregnancy)\b.{0,30}\b(?:heavy bleeding|bleeding heavily|severe pain)\b|\bheavy bleeding\b.{0,30}\b(?:pregnant|pregnancy)\b"),
+    ("pregnancy_bleeding", PREGNANCY_BLEED, r"\b(?:pregnant|pregnancy)\b.{0,30}\b(?:heavy bleeding|bleeding heavily|severe pain)\b|\bheavy bleeding\b.{0,30}\b(?:pregnant|pregnancy)\b"),
 
     # ---------------- CONSCIOUSNESS ----------------
     ("unconscious", CONSCIOUSNESS, r"\b(?:unconscious|unresponsive|collapsed|passed out|blacked out|fainted|fainting|behosh|behoshi)\b"),
@@ -113,9 +115,9 @@ _RAW_RULES = [
     ("arm_sweat", CARDIAC, r"\b(?:left arm|jaw|chest)\b.{0,25}\b(?:pain|ache|numb\w*|heavy)\b.{0,25}\b(?:sweat\w*|nausea|nauseous|breathless\w*|dizzy)\b|\b(?:cold sweat\w*|sweating)\b.{0,25}\b(?:chest|left arm|jaw)\b"),
     ("face_different", STROKE, r"\b(?:face|smile|mouth) (?:looks?|looking|is|seems?|feels?) (?:different|strange|odd|uneven|twisted|off|weird)\b"),
     ("speech_odd", STROKE, r"\b(?:speech|talking|words?|voice) (?:is |are |has |have |sounds? )?(?:odd|strange|garbled|mixed up|not clear|not making sense|jumbled|weird)\b"),
-    ("vomit_blood", BLEEDING, r"\b(?:vomit(?:ing|ed)?|throwing up|throwing out|puking|spitting|coughing up|coughed up) (?:up )?(?:some |a lot of |lots of |fresh |red |black )?blood\b|\bblood in (?:my |his |her |the )?(?:vomit|vomiting)\b|\b(?:ulti|ulti mein|ulti me) khoon\b|\bkhoon ki ulti\b"),
-    ("cough_lot_blood", BLEEDING, r"\bcoughing (?:up )?(?:a lot of|lots of|large amounts? of|heavy) blood\b"),
-    ("pregnant_bleeding", BLEEDING, r"\b(?:pregnant|pregnancy|expecting)\b.{0,35}\bbleeding\b|\bbleeding\b.{0,35}\b(?:pregnant|pregnancy|expecting)\b"),
+    ("vomit_blood", INTERNAL_BLEED, r"\b(?:vomit(?:ing|ed)?|throwing up|throwing out|puking|spitting|coughing up|coughed up) (?:up )?(?:some |a lot of |lots of |fresh |red |black )?blood\b|\bblood in (?:my |his |her |the )?(?:vomit|vomiting)\b|\b(?:ulti|ulti mein|ulti me) khoon\b|\bkhoon ki ulti\b"),
+    ("cough_lot_blood", INTERNAL_BLEED, r"\bcoughing (?:up )?(?:a lot of|lots of|large amounts? of|heavy) blood\b"),
+    ("pregnant_bleeding", PREGNANCY_BLEED, r"\b(?:pregnant|pregnancy|expecting)\b.{0,35}\bbleeding\b|\bbleeding\b.{0,35}\b(?:pregnant|pregnancy|expecting)\b"),
     ("snake_bite", SNAKEBITE, r"\bsnake ?bites?\b|\bsnake bit\b|\b(?:bitten|bit) by (?:a |an |the )?(?:snake|cobra|viper|krait|python)\b|\b(?:saap|saanp|sanp|sap) (?:ne|ka) (?:kaata|kata|katla|daas)\b|\bsnake\b.{0,20}\bbit(?:e|ten|es)\b"),
     ("drowning", DROWNING, r"\b(?:drowning|drowned|fell (?:in|into) (?:the |a )?(?:water|well|river|pool|sea|lake)|pulled out of (?:the )?(?:water|pool|river))\b"),
     ("infant_fever", INFANT, r"\b(?:newborn|new born|infant|neonate|(?:[0-9]|one|two|three) (?:days?|weeks?) old|(?:[12]|one|two) ?(?:month|months|mo) old|under (?:3|three) months)\b.{0,40}\b(?:fever|temperature|febrile|burning up)\b|\b(?:fever|temperature)\b.{0,40}\b(?:newborn|new born|infant|(?:[0-9]|one|two|three) (?:days?|weeks?) old|(?:[12]|one|two) ?(?:month|months|mo) old)\b"),

@@ -1,3 +1,4 @@
+import re
 # ==================================================
 # RISK CLASSIFIER
 #
@@ -108,6 +109,24 @@ def is_self_care(message: str) -> bool:
     return False
 
 
+_WORD_NUMBERS = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_FEVER_DAYS = re.compile(
+    r"\b(?:fever|temperature)\b[^.?!]{0,30}?\b(?:for|since|from|last|past|x)\s+(?:the\s+)?(?:last\s+|past\s+)?"
+    r"(\d{1,2}|three|four|five|six|seven|eight|nine|ten)\s*(?:\+\s*)?days?\b",
+    re.IGNORECASE,
+)
+
+
+def _long_fever(message: str) -> bool:
+    """A fever that has lasted 3 or more days, however it is phrased."""
+    match = _FEVER_DAYS.search(message or "")
+    if not match:
+        return False
+    raw = match.group(1).lower()
+    days = _WORD_NUMBERS.get(raw) or (int(raw) if raw.isdigit() else 0)
+    return days >= 3
+
+
 def classify_risk(message: str) -> str:
 
     # ----------------------------------------
@@ -121,7 +140,7 @@ def classify_risk(message: str) -> str:
     # TIER 2: URGENT
     # ----------------------------------------
 
-    if is_urgent(message):
+    if is_urgent(message) or _long_fever(message):
         return "URGENT"
 
     # ----------------------------------------

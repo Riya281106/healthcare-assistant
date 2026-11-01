@@ -201,6 +201,11 @@ def _normalize_result(result) -> dict:
             )
         }
 
+    failed_ai = str(result.get("response", "")).startswith("I am currently unable to generate a response")
+    if failed_ai:
+        # The model call failed: do not show "sources used" next to an answer that never used them.
+        result = {**result, "sources": [], "rag_used": False, "urgency_tier": "normal"}
+
     return {
         "response": result.get("response", "I am sorry, I could not generate a response."),
         "intent": result.get("intent", "GENERAL"),

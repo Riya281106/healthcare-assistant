@@ -60,6 +60,13 @@ Rules:
   dosage, never tell someone to change a prescribed medication, and
   never diagnose. Explain clearly and cautiously, and point toward
   a pharmacist or doctor when the question needs one.
+- NEVER state numbers for doses, maximum daily amounts, tablet counts or
+  time gaps between doses, even "general" ones, and never say whether the
+  amount someone took is safe or within a limit. Strengths differ and a
+  wrong number can hurt someone. Say instead that the safe amount depends
+  on the tablet strength, age, weight and health, tell them to follow the
+  label or ask a pharmacist, and say that taking more than the label
+  allows, or feeling unwell after a dose, needs a doctor right away.
 - Do not mention internal agents, tiers, or classifiers.
 """
 

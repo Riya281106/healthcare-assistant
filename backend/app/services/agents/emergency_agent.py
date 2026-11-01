@@ -101,6 +101,19 @@ FIRST_AID = {
         "well. Go to the nearest hospital with a children's or emergency "
         "service now. Don't give any medicine unless a doctor says so."
     ),
+    "INTERNAL_BLEED": (
+        "While you wait: don't eat or drink anything and don't take aspirin or "
+        "pain tablets. Sit up leaning slightly forward, or lie on your side, so "
+        "you don't choke. Keep some of the vomit (or take a photo of it) to "
+        "show the doctors. Go to a hospital emergency department now."
+    ),
+    "PREGNANCY_BLEED": (
+        "While you wait: lie down on your side and rest. Use a clean pad or "
+        "cloth for the blood and don't put anything inside the vagina. Note "
+        "how many pads you soak and keep any tissue that passes to show the "
+        "doctors. Go to the nearest hospital with maternity or emergency "
+        "care now."
+    ),
     "GENERAL": "",
 }
 
@@ -154,6 +167,14 @@ def _build_localized_text(assessment: Optional[EmergencyAssessment], lang: str) 
     return "\n\n".join(parts)
 
 
+INFANT_OPENING = (
+    "This needs a doctor right away. Please take the baby to the nearest "
+    "hospital emergency or children's service now. If the baby is very "
+    "sleepy or hard to wake, breathing fast, or not feeding, call 112 "
+    "(or 108 for an ambulance in most states) instead."
+)
+
+
 def build_emergency_text(
     assessment: Optional[EmergencyAssessment],
     lang: Optional[str] = "en"
@@ -171,7 +192,7 @@ def build_emergency_text(
     if assessment.categories == ["SELF_HARM"]:
         return SELF_HARM_TEXT
 
-    parts = [CALL_NOW]
+    parts = [INFANT_OPENING if primary == "INFANT" else CALL_NOW]
 
     first_aid = FIRST_AID.get(primary, "")
     if first_aid:

@@ -40,7 +40,7 @@ NEARBY_TIMEOUT = 8
 RADII_METRES = (4000, 10000, 25000)   # widen step by step until there are enough results
 ENOUGH_RESULTS = 10
 SEARCH_BUDGET_SECONDS = 28            # stop widening after this long, show what we have
-CACHE_SECONDS = 21600                 # polite to the free servers: repeat searches reuse the answer
+CACHE_SECONDS = 600                   # polite to the free servers: repeat searches reuse the answer
 
 SOURCE_LABEL = "OpenStreetMap (community-edited map data, may be incomplete)"
 
@@ -88,7 +88,9 @@ def _geocode_cached(pin: Optional[str], locality: Optional[str]):
     if pin and not locality:
         params.update({"postalcode": pin, "country": "India"})
     else:
-        params.update({"q": f"{locality or ''} {pin or ''}, Maharashtra, India".strip(), "countrycodes": "in"})
+        # No "Maharashtra" in the query on purpose: adding it made "Bangalore" quietly resolve to a
+        # place inside Maharashtra. Search India-wide, then refuse anything outside the state below.
+        params.update({"q": f"{locality or ''} {pin or ''}, India".strip(), "countrycodes": "in"})
 
     try:
         resp = requests.get(NOMINATIM_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=GEOCODE_TIMEOUT)

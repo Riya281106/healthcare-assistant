@@ -400,3 +400,12 @@ def test_cors_only_allows_the_configured_origins(client):
     bad = client.options("/api/chat", headers={"Origin": "http://evil.example", "Access-Control-Request-Method": "POST"})
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_a_failed_ai_answer_shows_no_sources(client, alice, monkeypatch):
+    import app.main as main
+    monkeypatch.setattr(main, "orchestrate", lambda **k: {
+        "response": "I am currently unable to generate a response. Please try again.",
+        "intent": "SELF_CARE", "urgency_tier": "self_care", "sources": [{"title": "Understanding Fever in Adults"}], "rag_used": True})
+    data = client.post("/api/chat", json={"message": "hello there friend"}, headers=alice["headers"]).json()
+    assert data["sources"] == [] and data["rag_used"] is False
