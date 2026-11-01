@@ -304,6 +304,70 @@ def init_db():
     )
 
 
+
+    # ----------------------------------------------
+    # APPOINTMENT REQUESTS (+ audit trail)
+    # Patient name, phone and reason are stored ENCRYPTED (app/core/crypto.py).
+    # ----------------------------------------------
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS appointments (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            ref TEXT UNIQUE NOT NULL,
+
+            user_id TEXT NOT NULL,
+
+            facility_name TEXT NOT NULL,
+
+            facility_address TEXT,
+
+            facility_phone TEXT,
+
+            facility_source TEXT,
+
+            is_demo INTEGER DEFAULT 0,
+
+            patient_name TEXT NOT NULL,
+
+            patient_phone TEXT NOT NULL,
+
+            patient_age INTEGER,
+
+            preferred_date TEXT,
+
+            preferred_slot TEXT,
+
+            reason TEXT,
+
+            status TEXT NOT NULL DEFAULT 'requested',
+
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS appointment_events (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            appointment_ref TEXT NOT NULL,
+
+            user_id TEXT NOT NULL,
+
+            event TEXT NOT NULL,
+
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
     # ----------------------------------------------
     # INDEXES
     # Every query in this app filters by user_id. Without these, SQLite
@@ -330,6 +394,12 @@ def init_db():
 
         "CREATE INDEX IF NOT EXISTS idx_hospitals_city "
         "ON hospitals (city)",
+
+        "CREATE INDEX IF NOT EXISTS idx_appointments_user "
+        "ON appointments (user_id, id)",
+
+        "CREATE INDEX IF NOT EXISTS idx_appointment_events_ref "
+        "ON appointment_events (appointment_ref)",
     ]
 
     for statement in index_statements:
@@ -1506,3 +1576,174 @@ def delete_session_state(user_id: str, state_key: str = None):
         connection.commit()
     finally:
         connection.close()
+
+
+# ==================================================
+# APPOINTMENT REQUESTS
+# ==================================================
+
+_REF_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no 0/O/1/I/L: easy to read out on a call
+
+
+def _new_ref() -> str:
+    import secrets
+    return "HA-" + "".join(secrets.choice(_REF_ALPHABET) for _ in range(6))
+
+
+def _appointment_row_to_dict(row) -> dict:
+    from app.core.crypto import decrypt
+
+    return {
+        "ref": row["ref"],
+        "facility_name": row["facility_name"],
+        "facility_address": row["facility_address"],
+        "facility_phone": row["facility_phone"],
+        "facility_source": row["facility_source"],
+        "is_demo": bool(row["is_demo"]),
+        "patient_name": decrypt(row["patient_name"]),
+        "patient_phone": decrypt(row["patient_phone"]),
+        "patient_age": row["patient_age"],
+        "preferred_date": row["preferred_date"],
+        "preferred_slot": row["preferred_slot"],
+        "reason": decrypt(row["reason"]),
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _log_appointment_event(connection, ref: str, user_id: str, event: str):
+    connection.execute(
+        "INSERT INTO appointment_events (appointment_ref, user_id, event) VALUES (?, ?, ?)",
+        (ref, user_id, event),
+    )
+
+
+def create_appointment(user_id: str, data: dict, status: str = "requested") -> dict:
+    """Save one appointment request. Personal fields are encrypted at rest."""
+
+    from app.core.crypto import encrypt
+
+    connection = get_connection()
+
+    try:
+        for _ in range(10):
+            ref = _new_ref()
+            exists = connection.execute("SELECT 1 FROM appointments WHERE ref = ?", (ref,)).fetchone()
+            if not exists:
+                break
+
+        connection.execute(
+            """
+            INSERT INTO appointments (
+                ref, user_id, facility_name, facility_address, facility_phone, facility_source,
+                is_demo, patient_name, patient_phone, patient_age, preferred_date, preferred_slot,
+                reason, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ref, str(user_id), data["facility_name"], data.get("facility_address"),
+                data.get("facility_phone"), data.get("facility_source"),
+                1 if data.get("is_demo") else 0,
+                encrypt(data["patient_name"]), encrypt(data["patient_phone"]),
+                data.get("patient_age"), data.get("preferred_date"), data.get("preferred_slot"),
+                encrypt(data.get("reason")), status,
+            ),
+        )
+        _log_appointment_event(connection, ref, str(user_id), f"created as {status}")
+        connection.commit()
+
+        row = connection.execute("SELECT * FROM appointments WHERE ref = ?", (ref,)).fetchone()
+        return _appointment_row_to_dict(row)
+
+    finally:
+        connection.close()
+
+
+def list_appointments(user_id: str, limit: int = 20) -> list:
+
+    connection = get_connection()
+
+    try:
+        rows = connection.execute(
+            "SELECT * FROM appointments WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+            (str(user_id), limit),
+        ).fetchall()
+        return [_appointment_row_to_dict(r) for r in rows]
+    finally:
+        connection.close()
+
+
+def get_appointment(user_id: str, ref: str):
+    """Only returns the appointment if it belongs to this user."""
+
+    connection = get_connection()
+
+    try:
+        row = connection.execute(
+            "SELECT * FROM appointments WHERE user_id = ? AND ref = ?",
+            (str(user_id), (ref or "").upper()),
+        ).fetchone()
+        return _appointment_row_to_dict(row) if row else None
+    finally:
+        connection.close()
+
+
+def cancel_appointment(user_id: str, ref: str):
+    """
+    Cancel one of the user's own appointment requests.
+    Returns the updated appointment, or None if it is not theirs / not found / already cancelled.
+    """
+
+    connection = get_connection()
+
+    try:
+        ref = (ref or "").upper()
+        cursor = connection.execute(
+            """
+            UPDATE appointments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ? AND ref = ? AND status IN ('requested', 'confirmed')
+            """,
+            (str(user_id), ref),
+        )
+        if cursor.rowcount == 0:
+            connection.commit()
+            return None
+        _log_appointment_event(connection, ref, str(user_id), "cancelled by user")
+        connection.commit()
+        row = connection.execute("SELECT * FROM appointments WHERE ref = ?", (ref,)).fetchone()
+        return _appointment_row_to_dict(row)
+    finally:
+        connection.close()
+
+
+# ==================================================
+# DELETE EVERYTHING FOR ONE USER ("delete my data")
+# ==================================================
+
+_USER_DATA_TABLES = (
+    "chat_messages", "health_records", "reminders", "user_memories",
+    "session_state", "conversation_summaries", "appointments", "appointment_events",
+)
+
+
+def delete_all_user_data(user_id: str, delete_account: bool = False) -> dict:
+    """Remove the user's stored data. With delete_account=True the login itself is removed too."""
+
+    connection = get_connection()
+    counts = {}
+
+    try:
+        for table in _USER_DATA_TABLES:
+            cursor = connection.execute(f"DELETE FROM {table} WHERE user_id = ?", (str(user_id),))
+            counts[table] = cursor.rowcount
+
+        if delete_account:
+            cursor = connection.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
+            counts["users"] = cursor.rowcount
+
+        connection.commit()
+    finally:
+        connection.close()
+
+    return counts

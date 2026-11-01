@@ -15,12 +15,15 @@ HONEST LIMITS (the assistant says these to the user):
 
 import math
 import re
+import threading
+import time
 from functools import lru_cache
 from typing import List, Optional
 
 import requests
 
 from app.core.logging_config import get_logger
+from app.services.facilities.maharashtra import in_maharashtra_box
 from app.services.integrations.google_places import PlacesUnavailable
 
 logger = get_logger("osm_places")
@@ -34,14 +37,20 @@ USER_AGENT = "HealthcareAssistant/1.0 (student final-year project; hospital look
 GEOCODE_TIMEOUT = 8
 OVERPASS_TIMEOUT = 9     # per server; fail fast so the user is not kept waiting
 NEARBY_TIMEOUT = 8
-RADII_METRES = (5000, 15000)   # widen once if the first search finds too few
-ENOUGH_RESULTS = 3
+RADII_METRES = (4000, 10000, 25000)   # widen step by step until there are enough results
+ENOUGH_RESULTS = 10
+SEARCH_BUDGET_SECONDS = 28            # stop widening after this long, show what we have
+CACHE_SECONDS = 21600                 # polite to the free servers: repeat searches reuse the answer
 
 SOURCE_LABEL = "OpenStreetMap (community-edited map data, may be incomplete)"
 
 
 class LocationNotFound(Exception):
     """The PIN / locality could not be turned into a place on the map."""
+
+
+class OutsideMaharashtra(Exception):
+    """The PIN / locality is a real place, but not in Maharashtra (this assistant covers Maharashtra only)."""
 
 
 # What to look for per specialty: OSM tag values / name patterns. Name patterns are a
@@ -75,11 +84,11 @@ def _clean(value: Optional[str]) -> Optional[str]:
 
 @lru_cache(maxsize=256)
 def _geocode_cached(pin: Optional[str], locality: Optional[str]):
-    params = {"format": "jsonv2", "limit": 1, "addressdetails": 0}
+    params = {"format": "jsonv2", "limit": 1, "addressdetails": 1}
     if pin and not locality:
         params.update({"postalcode": pin, "country": "India"})
     else:
-        params.update({"q": f"{locality or ''} {pin or ''}, India".strip(), "countrycodes": "in"})
+        params.update({"q": f"{locality or ''} {pin or ''}, Maharashtra, India".strip(), "countrycodes": "in"})
 
     try:
         resp = requests.get(NOMINATIM_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=GEOCODE_TIMEOUT)
@@ -92,9 +101,16 @@ def _geocode_cached(pin: Optional[str], locality: Optional[str]):
         raise LocationNotFound(pin or locality or "")
 
     try:
-        return float(data[0]["lat"]), float(data[0]["lon"])
+        lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
     except (KeyError, ValueError, TypeError) as exc:
         raise PlacesUnavailable("geocoder bad response") from exc
+
+    # Maharashtra only: trust the geocoder's state when it gives one, and always check the box.
+    state = ((data[0].get("address") or {}).get("state") or "").strip().lower()
+    if (state and state != "maharashtra") or not in_maharashtra_box(lat, lon):
+        raise OutsideMaharashtra(pin or locality or "")
+
+    return lat, lon
 
 
 def geocode(pin: Optional[str], locality: Optional[str]):
@@ -123,7 +139,7 @@ def build_overpass_query(specialty_key: str, lat: float, lon: float, radius: int
             f'nwr{around}{kinds}["name"~"{name}",i];'
         )
 
-    return f"[out:json][timeout:8];({body});out center tags 80;"
+    return f"[out:json][timeout:8];({body});out center tags 150;"
 
 
 def _haversine_km(lat1, lon1, lat2, lon2) -> float:
@@ -190,6 +206,8 @@ def parse_elements(elements: List[dict], lat: float, lon: float, emergency: bool
             "place_id": f"{el.get('type', 'node')}/{el.get('id')}",
             "source": SOURCE_LABEL,
             "distance_km": round(distance, 1),
+            "lat": round(el_lat, 6),
+            "lon": round(el_lon, 6),
             "_emergency": (tags.get("emergency") or "").lower() == "yes",
         })
 
@@ -268,6 +286,8 @@ def parse_nominatim_results(results: List[dict], lat: float, lon: float) -> List
             "place_id": f"{r.get('osm_type', 'node')}/{r.get('osm_id')}",
             "source": SOURCE_LABEL,
             "distance_km": round(_haversine_km(lat, lon, r_lat, r_lon), 1),
+            "lat": round(r_lat, 6),
+            "lon": round(r_lon, 6),
         })
     places.sort(key=lambda p: p["distance_km"])
     return places
@@ -291,6 +311,48 @@ def _nominatim_nearby(specialty_key: str, lat: float, lon: float, radius_m: int 
         raise PlacesUnavailable(f"nominatim {type(exc).__name__}") from exc
 
 
+def rank_key(place: dict):
+    """
+    Ranking shown to the user: nearest first, with places that list a phone number or
+    website nudged ahead (a listed phone is worth about 1.5 km, a website about 0.5 km),
+    because a place you can actually contact is more useful than one you cannot.
+    """
+    distance = place.get("distance_km")
+    distance = 999.0 if distance is None else float(distance)
+    bonus = (1.5 if place.get("phone") else 0.0) + (0.5 if place.get("website") else 0.0)
+    return distance - bonus
+
+
+_CACHE: dict = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(key):
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+        return [dict(p) for p in hit[1]]
+    return None
+
+
+def _cache_put(key, places):
+    with _CACHE_LOCK:
+        if len(_CACHE) > 200:
+            _CACHE.clear()
+        _CACHE[key] = (time.monotonic(), [dict(p) for p in places])
+
+
+def _collect(specialty_key: str, lat: float, lon: float, emergency: bool, want: int, deadline: float) -> List[dict]:
+    """Widen the search radius until there are `want` places (or the time budget is used)."""
+    places: List[dict] = []
+    for radius in RADII_METRES:
+        elements = _run_overpass(build_overpass_query(specialty_key, lat, lon, radius, emergency))
+        places = parse_elements(elements, lat, lon, emergency)
+        if len(places) >= want or time.monotonic() > deadline:
+            break
+    return places
+
+
 def search_facilities(
     specialty_key: str,
     pin: Optional[str],
@@ -298,19 +360,47 @@ def search_facilities(
     emergency: bool = False,
     limit: int = 10,
 ) -> List[dict]:
-    """Nearest matching facilities. Raises LocationNotFound or PlacesUnavailable."""
+    """
+    Nearest matching facilities in Maharashtra, up to `limit`.
+    Raises LocationNotFound, OutsideMaharashtra or PlacesUnavailable.
+
+    For a specialty (eye, dental ...) the places that match it come first. If there are fewer
+    than `limit`, the nearest general hospitals fill the rest and are labelled as such
+    (`specialty_match` False), because they may have the department but the map data cannot say.
+    """
     lat, lon = geocode(pin, locality)
 
-    places: List[dict] = []
+    cache_key = (specialty_key, round(lat, 3), round(lon, 3), bool(emergency), limit)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    deadline = time.monotonic() + SEARCH_BUDGET_SECONDS
+    wanted_general = emergency or specialty_key == "general"
+
     try:
-        for radius in RADII_METRES:
-            elements = _run_overpass(build_overpass_query(specialty_key, lat, lon, radius, emergency))
-            places = parse_elements(elements, lat, lon, emergency)
-            if len(places) >= ENOUGH_RESULTS:
-                break
+        places = _collect(specialty_key, lat, lon, emergency, limit, deadline)
+        for p in places:
+            p["specialty_match"] = True
+
+        if not wanted_general and len(places) < limit and time.monotonic() < deadline:
+            seen = {p["place_id"] for p in places}
+            general = _collect("general", lat, lon, False, limit, deadline)
+            for p in general:
+                if p["place_id"] not in seen:
+                    p["specialty_match"] = False
+                    places.append(p)
     except PlacesUnavailable:
         # Every Overpass server failed: try the geocoder's own category search instead.
         logger.warning("overpass unavailable, falling back to nominatim nearby search")
         places = _nominatim_nearby("general" if emergency else specialty_key, lat, lon)
+        for p in places:
+            p["specialty_match"] = True
 
-    return places[:limit]
+    matched = sorted([p for p in places if p.get("specialty_match", True)], key=rank_key)
+    others = sorted([p for p in places if not p.get("specialty_match", True)], key=rank_key)
+    ranked = (matched + others)[:limit]
+
+    if ranked:
+        _cache_put(cache_key, ranked)
+    return ranked

@@ -1,4 +1,5 @@
-const API_BASE = "http://127.0.0.1:8000/api";
+// Set VITE_API_BASE in frontend/.env when the backend is not on this computer.
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000/api";
 
 // Fired when the server says the login token is missing/expired.
 // App.jsx listens for it and sends the person back to the login screen.
@@ -60,6 +61,16 @@ export function getCareNavState() {
 
 export function deleteCareNavState() {
   return apiRequest("/care-navigation/state", { method: "DELETE" });
+}
+
+export function getAppointments() {
+  return apiRequest("/appointments");
+}
+
+// Erase this person's chats, records, memories, reminders and appointment requests.
+// With deleteAccount = true the login is removed as well.
+export function deleteMyData(deleteAccount = false) {
+  return apiRequest(`/me/data?delete_account=${deleteAccount ? "true" : "false"}`, { method: "DELETE" });
 }
 
 export function getSummary() {

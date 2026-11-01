@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 // Languages offered in the selector. "auto" = detect from the message.
-export const LANGUAGES = [
+const LANGUAGES = [
   { code: "auto", label: "Auto" },
   { code: "en", label: "English" },
   { code: "hi", label: "हिन्दी" },
@@ -83,91 +83,156 @@ export function FacilityCards({ facilities, onChoose, disabled }) {
     <ol className="facility-list">
       {facilities.map((f) => {
         const website = safeHttpUrl(f.website);
-        const maps = safeHttpUrl(f.maps_url);
+        const directions = safeHttpUrl(f.directions_url) || safeHttpUrl(f.maps_url);
+        const phoneLookup = safeHttpUrl(f.phone_lookup_url);
         const booking =
           f.booking && f.booking.status === "found"
             ? safeHttpUrl(f.booking.url)
             : null;
 
         return (
-          <li key={f.n} className="facility-card">
+          <li key={f.n} className={`facility-card ${f.partner_demo ? "facility-card-demo" : ""}`}>
             <div className="facility-head">
               <span className="facility-number">{f.n}</span>
               <h4>{f.name}</h4>
             </div>
 
+            {f.partner_demo && (
+              <p className="facility-demo-badge">DEMO: sandbox hospital for this project</p>
+            )}
+
             <p className="facility-line">
-              <strong>Specialty:</strong> {f.specialty}
+              <strong>Type:</strong> {f.specialty}
             </p>
             <p className="facility-line">
               <strong>Address:</strong> {f.address || "not listed"}
             </p>
             {f.distance_km != null && (
               <p className="facility-line">
-                <strong>Distance:</strong> about {f.distance_km} km from your location
+                <strong>Distance:</strong> about {f.distance_km} km
               </p>
             )}
-            {f.phone && (
+            {!f.partner_demo && (
               <p className="facility-line">
                 <strong>Phone:</strong>{" "}
-                <a href={`tel:${f.phone.replace(/[^+\d]/g, "")}`}>{f.phone}</a>
+                {f.phone ? (
+                  <a href={`tel:${f.phone.replace(/[^+\d]/g, "")}`}>{f.phone}</a>
+                ) : (
+                  "not listed"
+                )}
               </p>
             )}
 
             <div className="facility-actions">
-              {website && (
-                <a
-                  className="facility-btn"
-                  href={website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Official website
+              {f.phone && (
+                <a className="facility-btn" href={`tel:${f.phone.replace(/[^+\d]/g, "")}`}>
+                  Call
                 </a>
               )}
-              {maps && (
-                <a
-                  className="facility-btn"
-                  href={maps}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+              {!f.phone && phoneLookup && (
+                <a className="facility-btn" href={phoneLookup} target="_blank" rel="noopener noreferrer">
+                  Find phone
+                </a>
+              )}
+              {directions && (
+                <a className="facility-btn" href={directions} target="_blank" rel="noopener noreferrer">
                   Directions
                 </a>
               )}
-              {booking ? (
-                <a
-                  className="facility-btn facility-btn-primary"
-                  href={booking}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Book appointment
-                  {f.booking.external_provider ? " (outside provider)" : ""}
+              {website && (
+                <a className="facility-btn" href={website} target="_blank" rel="noopener noreferrer">
+                  Website
                 </a>
-              ) : (
-                <button
-                  type="button"
-                  className="facility-btn facility-btn-muted"
-                  onClick={() => onChoose(`Book an appointment at Hospital ${f.n}`)}
-                  disabled={disabled}
-                  title="No verified online booking link found. Tap for phone or website options."
-                >
-                  Booking help
-                </button>
               )}
+              {booking && (
+                <a className="facility-btn" href={booking} target="_blank" rel="noopener noreferrer">
+                  Official booking page{f.booking.external_provider ? " (outside provider)" : ""}
+                </a>
+              )}
+              <button
+                type="button"
+                className="facility-btn facility-btn-primary"
+                onClick={() => onChoose(`Book an appointment at Hospital ${f.n}`)}
+                disabled={disabled}
+              >
+                Select and book
+              </button>
             </div>
 
-            {!booking && (
-              <p className="facility-note">
-                Online booking link not verified.
-              </p>
-            )}
             <p className="facility-source">Source: {f.source}</p>
           </li>
         );
       })}
     </ol>
+  );
+}
+
+// Tap-to-answer buttons under the assistant's latest question (Yes / No / Cancel ...).
+// Some labels are sent as a plain "yes" / "no" so the server understands them.
+const QUICK_SEND = {
+  "Yes, request appointment": "yes",
+  "Yes, confirm": "yes",
+  "Yes, cancel it": "yes",
+  "No, keep it": "no",
+  "Change something": "change",
+};
+
+export function QuickReplies({ options, onPick, disabled }) {
+  if (!options || options.length === 0) return null;
+  return (
+    <div className="quick-replies" role="group" aria-label="Quick replies">
+      {options.map((label) => (
+        <button
+          key={label}
+          type="button"
+          className="quick-reply"
+          disabled={disabled}
+          onClick={() => onPick(QUICK_SEND[label] || label)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Shown after a request is saved. Says plainly what the status means.
+export function AppointmentCard({ appointment }) {
+  if (!appointment) return null;
+  const confirmed = appointment.status === "confirmed";
+  const phone = appointment.facility_phone;
+  return (
+    <div className={`appointment-card ${confirmed ? "appointment-confirmed" : "appointment-requested"}`}>
+      <div className="appointment-ref">Reference {appointment.ref}</div>
+      <div className="appointment-status">
+        {confirmed ? "CONFIRMED (demo hospital)" : "REQUESTED: not confirmed by the hospital yet"}
+      </div>
+      <p className="appointment-line">{appointment.facility_name}</p>
+      <p className="appointment-line">
+        {appointment.preferred_date}
+        {appointment.preferred_slot ? `, ${appointment.preferred_slot}` : ""}
+      </p>
+      {!confirmed && phone && (
+        <a className="facility-btn facility-btn-primary" href={`tel:${phone.replace(/[^+\d]/g, "")}`}>
+          Call the hospital to confirm
+        </a>
+      )}
+    </div>
+  );
+}
+
+// A short, honest list of what the assistant did for this answer.
+export function TracePanel({ trace }) {
+  if (!trace || trace.length === 0) return null;
+  return (
+    <details className="trace-panel">
+      <summary>How I handled this</summary>
+      <ol>
+        {trace.map((step, i) => (
+          <li key={i}>{step}</li>
+        ))}
+      </ol>
+    </details>
   );
 }
 

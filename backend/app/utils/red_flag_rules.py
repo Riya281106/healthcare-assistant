@@ -25,6 +25,9 @@ CHOKING = "CHOKING"
 POISONING = "POISONING"
 ALLERGIC = "ALLERGIC"
 SELF_HARM = "SELF_HARM"
+SNAKEBITE = "SNAKEBITE"
+DROWNING = "DROWNING"
+INFANT = "INFANT"
 GENERAL = "GENERAL"
 
 # Categories where "I don't want to die" style denials must NOT silence the alert
@@ -101,8 +104,21 @@ _RAW_RULES = [
     ("choking", CHOKING, r"\b(?:choking|choked|stuck in (?:my|his|her|the) (?:throat|windpipe))\b"),
 
     # ---------------- POISONING / OVERDOSE ----------------
-    ("overdose", POISONING, r"\b(?:overdose|overdosed|overdosing)\b|\btook too (?:many|much) (?:of )?(?:my |the |his |her )?(?:pills|tablets|capsules|medicine|medication|meds|painkillers|paracetamol|crocin|dolo|sleeping pills|insulin|aspirin|ibuprofen)\b|\btook (?:\d+|ten|twenty|thirty|many|all (?:my|the|of)) (?:pills|tablets|capsules|painkillers|sleeping pills)\b"),
+    ("overdose", POISONING, r"\b(?:overdose|overdosed|overdosing)\b|\btook too (?:many|much) (?:of )?(?:my |the |his |her )?(?:pills|tablets|capsules|medicine|medication|meds|painkillers|paracetamol|crocin|dolo|sleeping pills|insulin|aspirin|ibuprofen)\b|\b(?:took|taken|swallowed|ate|eaten|consumed|popped|downed|gulped) (?:\d{2,}|[89]|ten|twenty|thirty|fifty|many|lots of|a lot of|a handful of|handful of|all (?:my|the|of)|the whole|a whole|an entire) ?(?:of )?(?:my |the |his |her )?(?:\w+ ){0,2}(?:pills|tablets|capsules|painkillers|medicines|medications|meds)\b"),
     ("poisoned", POISONING, r"\b(?:poisoned|swallowed (?:poison|bleach|acid|pesticide|phenyl|kerosene|petrol|detergent|battery)|drank (?:poison|bleach|acid|pesticide|phenyl|kerosene|petrol)|ate (?:poison|rat poison)|rat poison|consumed (?:poison|pesticide|phenyl))\b"),
+
+
+    # ---------------- ADDED AFTER REVIEW (gaps found by probing 42 phrasings) ----------------
+    ("chest_weight", CARDIAC, r"\bchest (?:feels?|feeling|is) like (?:someone|something|a weight|a band|a vice|an elephant)\b|\b(?:someone|something|a weight|an elephant|pressure) (?:is |was )?(?:sitting|standing|pressing|resting|heavy) (?:on|in|against) (?:my |his |her )?chest\b"),
+    ("arm_sweat", CARDIAC, r"\b(?:left arm|jaw|chest)\b.{0,25}\b(?:pain|ache|numb\w*|heavy)\b.{0,25}\b(?:sweat\w*|nausea|nauseous|breathless\w*|dizzy)\b|\b(?:cold sweat\w*|sweating)\b.{0,25}\b(?:chest|left arm|jaw)\b"),
+    ("face_different", STROKE, r"\b(?:face|smile|mouth) (?:looks?|looking|is|seems?|feels?) (?:different|strange|odd|uneven|twisted|off|weird)\b"),
+    ("speech_odd", STROKE, r"\b(?:speech|talking|words?|voice) (?:is |are |has |have |sounds? )?(?:odd|strange|garbled|mixed up|not clear|not making sense|jumbled|weird)\b"),
+    ("vomit_blood", BLEEDING, r"\b(?:vomit(?:ing|ed)?|throwing up|throwing out|puking|spitting|coughing up|coughed up) (?:up )?(?:some |a lot of |lots of |fresh |red |black )?blood\b|\bblood in (?:my |his |her |the )?(?:vomit|vomiting)\b|\b(?:ulti|ulti mein|ulti me) khoon\b|\bkhoon ki ulti\b"),
+    ("cough_lot_blood", BLEEDING, r"\bcoughing (?:up )?(?:a lot of|lots of|large amounts? of|heavy) blood\b"),
+    ("pregnant_bleeding", BLEEDING, r"\b(?:pregnant|pregnancy|expecting)\b.{0,35}\bbleeding\b|\bbleeding\b.{0,35}\b(?:pregnant|pregnancy|expecting)\b"),
+    ("snake_bite", SNAKEBITE, r"\bsnake ?bites?\b|\bsnake bit\b|\b(?:bitten|bit) by (?:a |an |the )?(?:snake|cobra|viper|krait|python)\b|\b(?:saap|saanp|sanp|sap) (?:ne|ka) (?:kaata|kata|katla|daas)\b|\bsnake\b.{0,20}\bbit(?:e|ten|es)\b"),
+    ("drowning", DROWNING, r"\b(?:drowning|drowned|fell (?:in|into) (?:the |a )?(?:water|well|river|pool|sea|lake)|pulled out of (?:the )?(?:water|pool|river))\b"),
+    ("infant_fever", INFANT, r"\b(?:newborn|new born|infant|neonate|(?:[0-9]|one|two|three) (?:days?|weeks?) old|(?:[12]|one|two) ?(?:month|months|mo) old|under (?:3|three) months)\b.{0,40}\b(?:fever|temperature|febrile|burning up)\b|\b(?:fever|temperature)\b.{0,40}\b(?:newborn|new born|infant|(?:[0-9]|one|two|three) (?:days?|weeks?) old|(?:[12]|one|two) ?(?:month|months|mo) old)\b"),
 
     # ---------------- ALLERGIC ----------------
     ("anaphylaxis", ALLERGIC, r"\b(?:anaphylaxis|anaphylactic|throat (?:is |feels? |getting )?(?:closing|closed|swelling shut)|tongue (?:is )?swelling)\b"),
@@ -118,6 +134,8 @@ _RAW_RULES = [
     ("end_it_all", SELF_HARM, r"\bend (?:it all|everything|my suffering)\b|\btake my own life\b|\bgive up on life\b|\bgoing to end it\b"),
     ("self_harm", SELF_HARM, r"\bself harm(?:ing)?\b|\bslit (?:my )?wrists?\b|\bcut (?:my )?wrists?\b|\bjump(?:ing)? (?:off|from) (?:a |the |my )?(?:bridge|building|roof|terrace|balcony|train|cliff)\b"),
     ("self_harm_intent", SELF_HARM, r"\b(?:want|wanna|going|planning|plan|thinking of|thinking about|thought about|urge|urges|feel like|tempted|trying|tried|keep|keeps|started) (?:to )?(?:hurt|hurting|harm|harming|cut|cutting|injure|injuring|punish|punishing) (?:myself|my self)\b|\b(?:hurt|hurting|harm|harming|cut|cutting) myself on purpose\b"),
+
+    ("dont_wanna_live", SELF_HARM, r"\b(?:dont|do not|no longer|not) (?:want(?:ing)?|wanna|wish) (?:to )?(?:live|be alive|exist|go on|wake up|be here)(?: any ?more| any longer)?\b|\bdont wanna be here\b|\b(?:want|wanna|wish) (?:to )?(?:disappear(?! (?:into|in|under|behind|for a|for the|from (?:social|the|work|everyone)|at)\b)|vanish|not exist|go away forever|sleep forever)\b|\b(?:cant|cannot|can not) (?:go on(?! (?:the|a|an|my|our|this|that|your|his|her|their|trip|vacation|holiday|date|stage|walk|ride|tour|with)\b)|take (?:it|this|life) any ?more|keep going|carry on)\b|\b(?:feel(?:ing)? like|thinking of|thinking about|going to|about to|want to) ending it(?! with\b)\b|\bending it all\b|\bhurt myself (?:again|deliberately)\b|\bi?(?:m| am) done with (?:life|living)\b|\bwish i (?:was|were) dead\b|\bno reason to live\b"),
     ("hinglish_self_harm", SELF_HARM, r"\b(?:marna chah\w*|mar jana chah\w*|mar jaana chah\w*|jaan de dunga|jaan de dungi|khudkushi|khud kushi|aatmahatya|atmahatya|suicide karna|jeena nahi|jeene ka mann nahi|jeene ka man nahi)\b|\bmar (?:jaun|jaaun|jau)\b"),
     ("hi_self_harm", SELF_HARM, r"आत्महत्या|खुदकुशी|मरना चाह|जीना नहीं|जीने का मन नहीं|जान दे"),
 ]

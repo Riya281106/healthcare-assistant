@@ -1462,3 +1462,90 @@ body {
 .booking-open {
   margin-top: 12px;
 }
+
+/* ================= QUICK REPLIES, APPOINTMENT CARD, TRACE ================= */
+
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-reply {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--db-calm, #4fd8c0);
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.quick-reply:hover:not(:disabled),
+.quick-reply:focus-visible {
+  background: rgba(79, 216, 192, 0.18);
+  outline: none;
+}
+
+.quick-reply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.facility-card-demo {
+  border-style: dashed;
+}
+
+.facility-demo-badge {
+  margin: 4px 0 !important;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ffd27a;
+}
+
+.appointment-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.appointment-requested {
+  border-color: #ffd27a;
+}
+
+.appointment-confirmed {
+  border-color: var(--db-calm, #4fd8c0);
+}
+
+.appointment-ref {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.appointment-status {
+  margin: 4px 0 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.appointment-line {
+  margin: 2px 0 !important;
+  font-size: 0.92rem;
+}
+
+.trace-panel {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--db-ink-dim, #93a3b8);
+}
+
+.trace-panel summary {
+  cursor: pointer;
+}
+
+.trace-panel ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}

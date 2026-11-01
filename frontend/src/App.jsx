@@ -9,12 +9,15 @@ import ConversationHistoryPage from "./ConversationHistoryPage.jsx";
 import RemindersPage from "./RemindersPage.jsx";
 import ProfilePage from "./ProfilePage.jsx";
 import KnowledgePage from "./KnowledgePage.jsx";
-import { sendChatMessage, deleteCareNavState, AUTH_EXPIRED_EVENT } from "./api.js";
+import { sendChatMessage, deleteCareNavState, deleteMyData, AUTH_EXPIRED_EVENT } from "./api.js";
 import {
   LanguageSelect,
   LocationPrompt,
   FacilityCards,
   BookingButton,
+  QuickReplies,
+  AppointmentCard,
+  TracePanel,
 } from "./ChatExtras.jsx";
 
 const TIER_LABELS = {
@@ -101,6 +104,26 @@ function App() {
     }
   };
 
+  const eraseEverything = async () => {
+    if (!window.confirm("Erase ALL your chats, health records, memories, reminders and appointment requests? This cannot be undone.")) return;
+    const alsoAccount = window.confirm("Also delete your login account? Press OK to delete the account too, or Cancel to keep your login.");
+    try {
+      await deleteMyData(alsoAccount);
+      if (alsoAccount) {
+        handleLogout();
+        return;
+      }
+      setMessages([
+        { role: "assistant", content: "All your saved data has been erased.", tier: "general", sources: [] },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Could not erase the data. Please try again.", tier: "general", sources: [] },
+      ]);
+    }
+  };
+
   const sendMessage = async () => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage || loading) return;
@@ -147,6 +170,9 @@ function App() {
           ui: data.ui || "text",
           facilities: data.facilities || [],
           bookingUrl: data.booking_url || null,
+          quickReplies: data.quick_replies || [],
+          appointment: data.appointment || null,
+          trace: data.trace || [],
         },
       ]);
     } catch (error) {
@@ -271,7 +297,25 @@ function App() {
                 >
                   Knowledge / Sources
                 </button>
-                <button className="logout-button" onClick={handleLogout}>
+                <button
+                onClick={() => {
+                  setPanelOpen(false);
+                  sendMessageDirect("my appointments");
+                }}
+              >
+                My Appointment Requests
+              </button>
+
+              <button
+                onClick={() => {
+                  setPanelOpen(false);
+                  eraseEverything();
+                }}
+              >
+                Erase all my data
+              </button>
+
+              <button className="logout-button" onClick={handleLogout}>
                   Log Out
                 </button>
               </div>
@@ -340,6 +384,20 @@ function App() {
               {item.role === "assistant" && item.ui === "booking_link" && item.bookingUrl && (
                 <BookingButton url={item.bookingUrl} />
               )}
+
+              {item.role === "assistant" && item.ui === "appointment_confirmed" && (
+                <AppointmentCard appointment={item.appointment} />
+              )}
+
+              {item.role === "assistant" && index === messages.length - 1 && (
+                <QuickReplies
+                  options={item.quickReplies}
+                  onPick={sendMessageDirect}
+                  disabled={loading}
+                />
+              )}
+
+              {item.role === "assistant" && <TracePanel trace={item.trace} />}
 
               {item.role === "assistant" &&
                 item.ui === "ask_location" &&

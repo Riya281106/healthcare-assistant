@@ -81,6 +81,26 @@ FIRST_AID = {
         "auto-injector, use it now as directed. Sit or lie down; don't stand "
         "or walk around."
     ),
+    "SNAKEBITE": (
+        "While you wait: keep the person calm and as still as possible, keep "
+        "the bitten limb still, and remove rings or tight items near the bite "
+        "before it swells. Don't cut the bite, suck out the venom, apply ice "
+        "or tie anything tightly. Don't try to catch the snake; a photo from "
+        "a safe distance helps. Go straight to a hospital that has anti-snake "
+        "venom."
+    ),
+    "DROWNING": (
+        "While you wait: take the person out of the water only if you can do "
+        "it safely. If they are not breathing, tell the emergency operator "
+        "now; they will guide you through CPR. If they are breathing, lay "
+        "them on their side and keep them warm. Even if they seem fine "
+        "afterwards, they need to be checked in a hospital."
+    ),
+    "INFANT": (
+        "A fever in a baby this young can be serious even when the baby looks "
+        "well. Go to the nearest hospital with a children's or emergency "
+        "service now. Don't give any medicine unless a doctor says so."
+    ),
     "GENERAL": "",
 }
 

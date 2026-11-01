@@ -14,6 +14,8 @@ import sys
 os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
 os.environ.setdefault("GROQ_API_KEY", "test-key")
 os.environ["ADMIN_EMAILS"] = "admin@example.com"
+# The sandbox demo hospital is off in tests unless a test turns it on.
+os.environ["DEMO_PARTNER_ENABLED"] = "0"
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BACKEND_DIR not in sys.path:
@@ -21,6 +23,15 @@ if BACKEND_DIR not in sys.path:
 
 import pytest
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _clear_osm_cache():
+    # The free-map search caches answers for 10 minutes; tests must not see each other's.
+    import app.services.integrations.osm_places as osm_places
+    osm_places._CACHE.clear()
+    osm_places._geocode_cached.cache_clear()
+    yield
 
 
 @pytest.fixture()
@@ -31,6 +42,9 @@ def client(tmp_path, monkeypatch):
 
     import app.main as main
     main.chat_limiter.reset()
+    main.emergency_limiter.reset()
+    from app.api.routes import auth as auth_routes
+    auth_routes.reset_limiters()
 
     # Stub the AI so non-emergency chats never hit the network.
     def fake_orchestrate(message, history=None, user_id=None, ui_language=None):

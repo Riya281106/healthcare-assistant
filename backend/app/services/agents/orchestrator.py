@@ -474,7 +474,7 @@ def build_standard_response(
     if language:
         standard["language"] = language
 
-    for extra_key in ("facilities", "ui", "booking_url", "booking_verified"):
+    for extra_key in ("facilities", "ui", "booking_url", "booking_verified", "quick_replies", "appointment", "trace"):
         if extra_key in result:
             standard[extra_key] = result[extra_key]
 

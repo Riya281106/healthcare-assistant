@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.deps import get_current_user
 from app.api.routes.auth import router as auth_router
@@ -11,8 +12,12 @@ from app.api.routes.profile import router as profile_router
 from app.api.routes.rag import router as rag_router
 from app.api.routes.reminder import router as reminder_router
 from app.api.routes.summary import router as summary_router
+from app.core.config import settings
 from app.core.database import (
+    cancel_appointment,
+    delete_all_user_data,
     find_duplicate_memory,
+    list_appointments,
     get_health_records,
     get_recent_messages,
     get_symptom_history,
@@ -40,6 +45,9 @@ logger = get_logger("api")
 # 30 chat messages per minute per user. Messages that look like an emergency
 # are never rate-limited.
 chat_limiter = RateLimiter(max_calls=30, window_seconds=60)
+# Emergency-looking messages are never blocked by the normal limit, but they do get a
+# much higher one so a loop of "chest pain" cannot be used to burn the AI quota.
+emergency_limiter = RateLimiter(max_calls=120, window_seconds=60)
 
 
 # ==================================================
@@ -49,7 +57,10 @@ chat_limiter = RateLimiter(max_calls=30, window_seconds=60)
 app = FastAPI(
     title="Agentic Healthcare Assistant API",
     description="Backend API for Agentic Healthcare Assistant",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs" if settings.ENABLE_DOCS else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if settings.ENABLE_DOCS else None,
 )
 
 
@@ -59,13 +70,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=False,          # the app uses a bearer token, not cookies
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
     expose_headers=["X-Request-ID"],
 )
 
@@ -88,8 +96,10 @@ async def request_context_middleware(request: Request, call_next):
         response = await call_next(request)
     except Exception:
         logger.exception("unhandled error %s %s", request.method, request.url.path)
-        reset_request_id(token)
-        raise
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Something went wrong on our side. Please try again. (ref " + request_id + ")"},
+        )
 
     elapsed_ms = (time.perf_counter() - started) * 1000
     user_id = getattr(request.state, "user_id", "-")
@@ -104,6 +114,13 @@ async def request_context_middleware(request: Request, call_next):
     )
 
     response.headers["X-Request-ID"] = request_id
+    # Basic browser hardening. Health data must never be cached by the browser or a proxy.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    if request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store"
     reset_request_id(token)
     return response
 
@@ -198,7 +215,55 @@ def _normalize_result(result) -> dict:
         "ui": result.get("ui", "text"),
         "booking_url": result.get("booking_url"),
         "booking_verified": result.get("booking_verified"),
+        "quick_replies": result.get("quick_replies", []),
+        "appointment": result.get("appointment"),
+        "trace": result.get("trace", []),
     }
+
+
+def _save_extras(user_id: str, message: str, response_text: str, intent: str) -> None:
+    """Background: remember facts the user stated and log a health record. Never fatal."""
+
+    try:
+
+        for memory in extract_memories(message):
+
+            duplicate = find_duplicate_memory(
+                user_id=user_id,
+                memory_type=memory["memory_type"],
+                memory_content=memory["memory_content"]
+            )
+
+            if not duplicate:
+                save_user_memory(
+                    user_id=user_id,
+                    memory_type=memory["memory_type"],
+                    memory_content=memory["memory_content"]
+                )
+
+    except Exception:
+        logger.exception("could not save memories")
+
+    try:
+
+        health_record = extract_health_record(
+            user_message=message,
+            ai_response=response_text,
+            intent=intent
+        )
+
+        if health_record:
+            save_health_record(
+                user_id=user_id,
+                record_type=health_record["record_type"],
+                record_content=health_record["record_content"],
+                symptom_name=health_record.get("symptom_name"),
+                severity=health_record.get("severity"),
+                duration_text=health_record.get("duration_text")
+            )
+
+    except Exception:
+        logger.exception("could not save health record")
 
 
 @app.post("/api/chat")
@@ -212,9 +277,16 @@ def chat(
     message = request.message
     started = time.perf_counter()
 
-    looks_like_emergency = detect_emergency(message) is not None
+    try:
+        looks_like_emergency = detect_emergency(message) is not None
+    except Exception:
+        # The safety check itself must never be the thing that fails the request.
+        logger.exception("emergency detector crashed; treating the message as a possible emergency")
+        looks_like_emergency = True
 
-    if not looks_like_emergency and not chat_limiter.allow(user_id):
+    limiter = emergency_limiter if looks_like_emergency else chat_limiter
+
+    if not limiter.allow(user_id):
         raise HTTPException(
             status_code=429,
             detail="You are sending messages too quickly. Please wait a moment and try again."
@@ -243,23 +315,40 @@ def chat(
 
         logger.exception("orchestrator failed")
 
-        assessment = detect_emergency(message)
+        try:
+            assessment = detect_emergency(message)
+        except Exception:
+            assessment = None
+            looks_like_emergency = True
 
-        if assessment is None:
+        if assessment is None and not looks_like_emergency:
             raise HTTPException(
                 status_code=503,
                 detail="The assistant is temporarily unavailable. Please try again in a moment."
             )
 
         # LLM/RAG is down but the message is an emergency: still give the safety reply.
-        fallback_lang, _ = resolve_language(message, ui_language=request.language)
-
-        result = build_standard_response(
-            result=run_emergency_agent(message, assessment, fallback_lang),
-            intent="EMERGENCY",
-            next_action="EMERGENCY_AGENT",
-            language=fallback_lang
-        )
+        try:
+            fallback_lang, _ = resolve_language(message, ui_language=request.language)
+            result = build_standard_response(
+                result=run_emergency_agent(message, assessment, fallback_lang),
+                intent="EMERGENCY",
+                next_action="EMERGENCY_AGENT",
+                language=fallback_lang
+            )
+        except Exception:
+            logger.exception("emergency agent failed; sending the hard-coded safety message")
+            result = {
+                "response": (
+                    "This could be a medical emergency. Please call 112 (India's national emergency "
+                    "number) right now, or 108 for an ambulance in most states. If you are thinking "
+                    "of harming yourself, call Tele-MANAS on 14416 or 1800-891-4416. "
+                    "I'm an AI assistant and can't examine you."
+                ),
+                "intent": "EMERGENCY",
+                "urgency_tier": "emergency",
+                "agent": "EMERGENCY_AGENT",
+            }
 
     normalized_result = _normalize_result(result)
 
@@ -273,46 +362,12 @@ def chat(
     except Exception:
         logger.exception("could not save chat messages")
 
-    try:
-
-        for memory in extract_memories(message):
-
-            duplicate = find_duplicate_memory(
-                user_id=user_id,
-                memory_type=memory["memory_type"],
-                memory_content=memory["memory_content"]
-            )
-
-            if not duplicate:
-                save_user_memory(
-                    user_id=user_id,
-                    memory_type=memory["memory_type"],
-                    memory_content=memory["memory_content"]
-                )
-
-    except Exception:
-        logger.exception("could not save memories")
-
-    try:
-
-        health_record = extract_health_record(
-            user_message=message,
-            ai_response=normalized_result["response"],
-            intent=normalized_result["intent"]
+    # Memory and health-record extraction can call the AI model. They run AFTER the reply
+    # has been sent, so the person never waits for them, and never for emergency messages.
+    if normalized_result["urgency_tier"] != "emergency":
+        background_tasks.add_task(
+            _save_extras, user_id, message, normalized_result["response"], normalized_result["intent"]
         )
-
-        if health_record:
-            save_health_record(
-                user_id=user_id,
-                record_type=health_record["record_type"],
-                record_content=health_record["record_content"],
-                symptom_name=health_record.get("symptom_name"),
-                severity=health_record.get("severity"),
-                duration_text=health_record.get("duration_text")
-            )
-
-    except Exception:
-        logger.exception("could not save health record")
 
     background_tasks.add_task(
         update_conversation_summary_if_needed,
@@ -393,3 +448,40 @@ def care_navigation_state_delete(current_user=Depends(get_current_user)):
 
 # NOTE: the old unauthenticated GET /api/chat/history?user_id=... was removed.
 # Use the authenticated GET /api/conversations/history instead.
+
+
+# ==================================================
+# APPOINTMENT REQUESTS  (own requests only)
+# ==================================================
+
+@app.get("/api/appointments")
+def appointments_list(current_user=Depends(get_current_user)):
+
+    return {"appointments": list_appointments(str(current_user["id"]))}
+
+
+@app.post("/api/appointments/{ref}/cancel")
+def appointments_cancel(ref: str, current_user=Depends(get_current_user)):
+
+    updated = cancel_appointment(str(current_user["id"]), ref)
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="No active appointment request with that reference.")
+
+    return {"appointment": updated}
+
+
+# ==================================================
+# DELETE MY DATA  (privacy control)
+# ==================================================
+
+@app.delete("/api/me/data")
+def delete_my_data(delete_account: bool = False, current_user=Depends(get_current_user)):
+    """Erase this user's chats, records, memories, reminders, summaries and appointment requests.
+    With ?delete_account=true the login itself is removed as well."""
+
+    counts = delete_all_user_data(str(current_user["id"]), delete_account=delete_account)
+
+    logger.info("user erased their data (account_deleted=%s)", delete_account)
+
+    return {"deleted": True, "account_deleted": bool(delete_account), "counts": counts}

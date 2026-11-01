@@ -88,11 +88,17 @@ M = {
         "hi": "{where} के पास {what} के लिए {count_phrase}। यह जानकारी {source} से है, इसलिए फ़ोन, समय और उपलब्धता अस्पताल से पुष्टि कर लें।",
         "mr": "{where} जवळ {what} साठी {count_phrase}. ही माहिती {source} मधून आहे, म्हणून फोन, वेळ आणि उपलब्धता रुग्णालयाकडून खात्री करून घ्या.",
     },
+    "outside_maharashtra": {
+        "en": "I can only search for hospitals and clinics in Maharashtra right now, and that doesn't look like a Maharashtra location. Please share a Maharashtra PIN code (they start with 40 to 44, for example 400001 or 411001) or an area and city in Maharashtra, such as Andheri, Mumbai or Kothrud, Pune.",
+        "hinglish": "Main abhi sirf Maharashtra ke hospital aur clinics dhundh sakta hoon, aur yeh Maharashtra ki location nahi lag rahi. Kripya Maharashtra ka PIN code (40 se 44 se shuru, jaise 400001 ya 411001) ya Maharashtra ka area aur city batayein, jaise Andheri, Mumbai ya Kothrud, Pune.",
+        "hi": "मैं अभी केवल महाराष्ट्र के अस्पताल और क्लिनिक खोज सकता हूँ, और यह महाराष्ट्र की जगह नहीं लग रही। कृपया महाराष्ट्र का PIN कोड (40 से 44 से शुरू, जैसे 400001 या 411001) या महाराष्ट्र का इलाका और शहर बताएँ, जैसे अंधेरी, मुंबई या कोथरूड, पुणे।",
+        "mr": "मी सध्या फक्त महाराष्ट्रातील रुग्णालये आणि क्लिनिक शोधू शकतो, आणि हे ठिकाण महाराष्ट्रातील वाटत नाही. कृपया महाराष्ट्राचा PIN कोड (40 ते 44 ने सुरू, उदा. 400001 किंवा 411001) किंवा महाराष्ट्रातील परिसर आणि शहर सांगा, उदा. अंधेरी, मुंबई किंवा कोथरूड, पुणे.",
+    },
     "results_fewer": {
-        "en": "I could only confirm {n} (fewer than five) in this area.",
-        "hinglish": "Is area mein main sirf {n} hi confirm kar paya (paanch se kam).",
-        "hi": "इस इलाके में मैं केवल {n} ही पुष्टि कर पाया (पाँच से कम)।",
-        "mr": "या परिसरात मी फक्त {n} निश्चित करू शकलो (पाचपेक्षा कमी).",
+        "en": "I could only confirm {n} (fewer than ten) in this area.",
+        "hinglish": "Is area mein main sirf {n} hi confirm kar paya (das se kam).",
+        "hi": "इस इलाके में मैं केवल {n} ही पुष्टि कर पाया (दस से कम)।",
+        "mr": "या परिसरात मी फक्त {n} निश्चित करू शकलो (दहापेक्षा कमी).",
     },
     "results_next": {
         "en": "To book, tell me which one you'd like, for example \"Book Hospital 2\".",

@@ -254,27 +254,32 @@ def test_F2_red_flag_yes_gives_urgent_guidance_not_a_routine_list(real, alice, p
     assert places.queries == []
 
 
-def test_G_pin_returns_at_most_five_real_results_with_links(real, alice, places):
+def test_G_pin_returns_up_to_ten_real_results_with_links(real, alice, places):
+    places.places = make_places(12)
     chat(real, alice, "I have eye pain. Find nearby eye hospitals.")
     chat(real, alice, "No")
     data = chat(real, alice, "400001")
     assert data["ui"] == "facility_results"
     assert "400001" in places.queries[-1]
     assert "eye" in places.queries[-1].lower()
-    assert len(data["facilities"]) == 5                 # 6 returned by the stub, capped at 5
+    assert len(data["facilities"]) == 10                # 12 returned by the stub, capped at 10
     names = [f["name"] for f in data["facilities"]]
-    assert names == [f"Eye Care Hospital {i}" for i in range(1, 6)]   # nothing invented
+    assert names == [f"Eye Care Hospital {i}" for i in range(1, 11)]  # nothing invented
     first = data["facilities"][0]
     assert first["booking"]["status"] == "found"
     assert "https://hospital1.example.org/appointments" in data["response"]
-    assert "not verified" in data["response"]           # hospitals without a verified link say so
+    assert data["facilities"][1]["booking"]["status"] != "found"
+    assert "hospital2.example.org/appointments" not in data["response"]   # no link is ever made up
+    # every result carries a Directions link and its phone number
+    assert all(f["directions_url"].startswith("https://www.google.com/maps/dir/") for f in data["facilities"])
+    assert data["facilities"][0]["phone"] == "+91 22 0000 0001"
 
 
 def test_G2_fewer_than_five_is_stated(real, alice, places):
     places.places = make_places(3)
     data = chat(real, alice, "Find eye hospitals near 400001")
     assert len(data["facilities"]) == 3
-    assert "fewer than five" in data["response"]
+    assert "fewer than ten" in data["response"]
 
 
 def test_G3_results_without_website_or_phone_are_labelled_not_listed(real, alice, places):
@@ -355,7 +360,7 @@ def test_H5_booking_with_no_results_asks_for_details(real, alice, places):
 def test_H6_out_of_range_choice(real, alice, places):
     _shown_results(real, alice)
     data = chat(real, alice, "book hospital 9")
-    assert "between 1 and 5" in data["response"]
+    assert "between 1 and" in data["response"]
 
 
 def test_H7_bare_number_after_results_selects_that_hospital(real, alice, places):
@@ -695,9 +700,9 @@ def test_default_provider_is_osm_when_no_google_key(monkeypatch):
 
 def test_osm_results_are_shown_with_honest_source_and_missing_fields(real, alice, monkeypatch):
     monkeypatch.setattr(nav, "is_configured", lambda: False)
-    monkeypatch.setattr(nav, "osm_search", lambda key, pin, loc, emergency=False, limit=10: [osm_place(i) for i in range(1, 7)])
+    monkeypatch.setattr(nav, "osm_search", lambda key, pin, loc, emergency=False, limit=10: [osm_place(i) for i in range(1, 13)])
     data = chat(real, alice, "Find eye hospitals near 400001")
-    assert len(data["facilities"]) == 5
+    assert len(data["facilities"]) == 10
     assert "OpenStreetMap" in data["response"] and "may be incomplete" in data["response"]
     assert data["facilities"][0]["source"].startswith("OpenStreetMap")
     assert data["facilities"][0]["distance_km"] == 1.0
@@ -791,26 +796,64 @@ def test_osm_geocoding_and_errors(monkeypatch):
     osm._geocode_cached.cache_clear()
 
 
-def test_osm_search_widens_radius_once_and_falls_back_to_mirror(monkeypatch):
+def _el(i, name, phone=None, lat=18.94, lon=72.84):
+    tags = {"name": name, "amenity": "hospital"}
+    if phone:
+        tags["phone"] = phone
+    return {"type": "node", "id": i, "lat": lat + i * 0.001, "lon": lon, "tags": tags}
+
+
+def test_osm_search_widens_radius_fills_with_labelled_general_hospitals_and_ranks(monkeypatch):
     monkeypatch.setattr(osm, "geocode", lambda pin, loc: (18.9322, 72.8353))
-    radii = []
+    eye_radii = []
 
     def fake_overpass(query):
-        radii.append(5000 if "around:5000" in query else 15000)
-        return OVERPASS_SAMPLE[:1] if len(radii) == 1 else OVERPASS_SAMPLE
+        if "healthcare:speciality" in query:                         # the eye search
+            eye_radii.append(int(query.split("around:")[1].split(",")[0]))
+            return [_el(1, "Far Eye Centre", lat=18.99), _el(2, "Near Eye Care", phone="+91 22 1111 1111", lat=18.935)]
+        return [_el(i, f"General Hospital {i}") for i in range(10, 22)]      # the general search
     monkeypatch.setattr(osm, "_run_overpass", fake_overpass)
-    places = osm.search_facilities("eye", "400001", None)
-    assert radii == [5000, 15000]                                  # too few at 5 km, so widened once
-    assert len(places) == 3
 
-    # mirror fallback inside _run_overpass
+    places = osm.search_facilities("eye", "400001", None, limit=10)
+
+    assert eye_radii == [4000, 10000, 25000]                          # kept widening: never reached 10
+    assert len(places) == 10
+    assert [p["name"] for p in places[:2]] == ["Near Eye Care", "Far Eye Centre"]    # eye matches first, nearest first
+    assert all(p["specialty_match"] for p in places[:2])
+    assert not any(p["specialty_match"] for p in places[2:])         # the rest are labelled as general hospitals
+    assert all(p["lat"] and p["lon"] for p in places)                # coordinates kept for directions links
+
+
+def test_osm_ranking_prefers_listed_phone_slightly():
+    near_no_phone = {"distance_km": 2.0, "phone": None, "website": None}
+    a_bit_farther_with_phone = {"distance_km": 3.0, "phone": "+91 1", "website": None}
+    much_farther_with_phone = {"distance_km": 9.0, "phone": "+91 1", "website": None}
+    ranked = sorted([much_farther_with_phone, near_no_phone, a_bit_farther_with_phone], key=osm.rank_key)
+    assert ranked == [a_bit_farther_with_phone, near_no_phone, much_farther_with_phone]
+
+
+def test_osm_repeat_search_uses_cache(monkeypatch):
+    monkeypatch.setattr(osm, "geocode", lambda pin, loc: (18.9322, 72.8353))
+    calls = []
+
+    def fake_overpass(query):
+        calls.append(query)
+        return [_el(i, f"General Hospital {i}") for i in range(1, 15)]
+    monkeypatch.setattr(osm, "_run_overpass", fake_overpass)
+    first = osm.search_facilities("general", "400001", None)
+    second = osm.search_facilities("general", "400001", None)
+    assert [p["name"] for p in first] == [p["name"] for p in second]
+    assert len(calls) == 1
+
+
+def test_mirror_fallback_inside_run_overpass(monkeypatch):
     urls = []
+
     def post(url, data=None, headers=None, timeout=None):
         urls.append(url)
         if len(urls) == 1:
             raise osm.requests.ConnectionError("down")
         return types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"elements": [1]})
-    monkeypatch.undo()
     monkeypatch.setattr(osm.requests, "post", post)
     assert osm._run_overpass("q") == [1] and len(urls) == 2
 
@@ -844,7 +887,8 @@ def test_overpass_outage_falls_back_to_nominatim(monkeypatch):
     monkeypatch.setattr(osm.requests, "get",
                         lambda *a, **k: types.SimpleNamespace(raise_for_status=lambda: None, json=lambda: NOMINATIM_SAMPLE))
     places = osm.search_facilities("eye", "400001", None)
-    assert [p["name"] for p in places] == ["Near Clinic", "Nominatim Eye Hospital"]
+    # the hospital that lists a phone and website is ranked just ahead of the slightly nearer clinic
+    assert [p["name"] for p in places] == ["Nominatim Eye Hospital", "Near Clinic"]
 
 
 def test_everything_down_is_reported_as_unavailable(monkeypatch):

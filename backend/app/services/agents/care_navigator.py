@@ -26,8 +26,12 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict
 from typing import Dict, List, Optional
 
+from app.core.config import settings
 from app.core.logging_config import get_logger
+from app.services.agents import appointment_flow
 from app.services.facilities.booking_finder import BookingInfo, find_booking_link
+from app.services.facilities.links import directions_url, phone_lookup_url
+from app.services.facilities.maharashtra import is_maharashtra_pin
 from app.services.facilities.specialty import (
     SPECIALTIES,
     detect_specialty,
@@ -44,6 +48,7 @@ from app.services.integrations import local_directory
 from app.services.integrations.osm_places import (
     SOURCE_LABEL as OSM_SOURCE,
     LocationNotFound,
+    OutsideMaharashtra,
     search_facilities as osm_search,
 )
 from app.services.session_context import (
@@ -56,7 +61,7 @@ from app.utils.messages import tr, what_label
 
 logger = get_logger("care_navigator")
 
-MAX_RESULTS = 5
+MAX_RESULTS = 10
 BOOKING_LOOKUP_BUDGET_SECONDS = 6
 
 # ----------------------------------------------------------------------------
@@ -300,8 +305,11 @@ def parse_screen_answer(message: str) -> str:
     return "unclear"
 
 
-def _reply(text: str, *, tier: str = "normal", facilities: Optional[list] = None, ui: Optional[str] = None, extra: Optional[dict] = None) -> dict:
+def _reply(text: str, *, tier: str = "normal", facilities: Optional[list] = None, ui: Optional[str] = None,
+           extra: Optional[dict] = None, quick: Optional[list] = None, trace: Optional[list] = None) -> dict:
     out = {
+        "quick_replies": quick or [],
+        "trace": trace or [],
         "response": text,
         "urgency_tier": tier,
         "agent": "CARE_NAVIGATOR",
@@ -371,26 +379,54 @@ def _choose_provider() -> str:
     return "google" if is_configured() else "osm"
 
 
-def _facility_record(position: int, place: dict, spec) -> dict:
+_SHORT_SPECIALTY = {"eye": "eye care", "dental": "dental", "skin": "skin care", "ent": "ENT", "heart": "heart care",
+                    "ortho": "bone and joint", "child": "children's", "women": "women's health"}
+
+
+def _facility_record(position: int, place: dict, spec, area: str = "") -> dict:
+    is_match = place.get("specialty_match", True)
+    specialty = place.get("specialty_label") or spec.label
+    if not is_match and spec.key in _SHORT_SPECIALTY:
+        specialty = f"General hospital ({_SHORT_SPECIALTY[spec.key]} department not confirmed)"
     return {
         "n": position,
         "name": place.get("name"),
         "address": place.get("address") or None,
-        "specialty": place.get("specialty_label") or spec.label,
+        "specialty": specialty,
+        "specialty_match": bool(is_match),
         "phone": place.get("phone"),
         "website": place.get("website"),
         "maps_url": place.get("maps_url"),
+        "directions_url": None if place.get("partner_demo") else directions_url(place),
+        "phone_lookup_url": None if (place.get("phone") or place.get("partner_demo")) else phone_lookup_url(place, area),
+        "lat": place.get("lat"),
+        "lon": place.get("lon"),
         "rating": place.get("rating"),
         "open_now": place.get("open_now"),
         "source": place.get("source") or "Google Maps listing",
         "distance_km": place.get("distance_km"),
+        "partner_demo": bool(place.get("partner_demo")),
         "booking": None,
+    }
+
+
+def _demo_place() -> dict:
+    """The sandbox hospital: only shown when DEMO_PARTNER_ENABLED=1, always labelled DEMO."""
+    return {
+        "name": "DEMO Partner Hospital (sandbox, not a real hospital)",
+        "address": "For project demonstration only. It confirms requests instantly.",
+        "phone": None,
+        "website": None,
+        "source": "Demo partner (sandbox)",
+        "place_id": "demo/partner",
+        "partner_demo": True,
+        "specialty_match": True,
     }
 
 
 def _format_results(facilities: List[dict], spec_key: str, where: str, lang: str, source: str = "Google Maps listings") -> str:
     what = what_label(spec_key, lang)
-    n = len(facilities)
+    n = len([f for f in facilities if not f.get("partner_demo")])
     count_phrase = {
         "en": f"are {n} result{'s' if n != 1 else ''}",
         "hinglish": f"{n} result",
@@ -398,28 +434,48 @@ def _format_results(facilities: List[dict], spec_key: str, where: str, lang: str
         "mr": f"{n} निकाल",
     }.get(lang, f"are {n} result{'s' if n != 1 else ''}")
 
+    real = [f for f in facilities if not f.get("partner_demo")]
     lines = [tr("results_intro", lang, what=what, where=where, count_phrase=count_phrase, source=source)]
-    if n < MAX_RESULTS:
-        lines.append(tr("results_fewer", lang, n=n))
+    if len(real) < MAX_RESULTS:
+        lines.append(tr("results_fewer", lang, n=len(real)))
+    if lang == "en" and spec_key not in ("general",) and any(not f.get("specialty_match", True) for f in real):
+        lines.append("Places that match what you asked for come first. The others are general hospitals: ask them whether they have that department.")
+    if lang == "en" and len(real) > 1:
+        lines.append("Ranked nearest first; places with a listed phone number are slightly preferred.")
     lines.append("")
 
     unlisted = tr("lbl_not_listed", lang)
     for fac in facilities:
-        lines.append(f"{fac['n']}. {fac['name']}")
-        lines.append(f"   {tr('lbl_specialty', lang)}: {fac['specialty']}")
+        distance = f" - {fac['distance_km']} km" if fac.get("distance_km") is not None else ""
+        lines.append(f"{fac['n']}. {fac['name']}{distance}")
         lines.append(f"   {tr('lbl_address', lang)}: {fac['address'] or unlisted}")
-        if fac.get("phone"):
-            lines.append(f"   {tr('lbl_phone', lang)}: {fac['phone']}")
-        lines.append(f"   {tr('lbl_website', lang)}: {fac['website'] or unlisted}")
+        if not fac.get("partner_demo"):
+            lines.append(f"   {tr('lbl_phone', lang)}: {fac.get('phone') or unlisted}")
         booking = fac.get("booking") or {}
         if booking.get("status") == "found":
             lines.append(f"   {tr('lbl_booking', lang)}: {booking['url']}")
-        else:
-            lines.append(f"   {tr('lbl_booking', lang)}: {tr('lbl_booking_unverified', lang)}")
         lines.append("")
 
     lines.append(tr("results_next", lang))
     return "\n".join(lines)
+
+
+def _demo_enabled() -> bool:
+    return bool(settings.DEMO_PARTNER_ENABLED)
+
+
+def _demo_only_reply(user_id: str, spec, pin, locality, lang: str, reason_text: str) -> dict:
+    """Live search gave nothing usable: say so honestly, and offer only the labelled sandbox hospital."""
+    facility = _facility_record(1, _demo_place(), spec, area=_where_text(pin, locality))
+    save_care_state(user_id, {"stage": "results", "specialty": spec.key, "pin": pin, "locality": locality, "facilities": [facility]})
+    text = (reason_text + "\n\nYou can still try the booking flow with the demo hospital below. "
+            "It is a sandbox made for this project, not a real hospital.\n\nReply 1 to choose it.")
+    return _reply(text, facilities=[facility], ui="facility_results", trace=["Live hospital search had no usable result", "Offered the labelled demo hospital only"])
+
+
+def _outside_reply(user_id: str, spec, emergency: bool, lang: str) -> dict:
+    save_care_state(user_id, {"stage": "awaiting_location", "specialty": spec.key, "emergency": emergency, "facilities": []})
+    return _reply(tr("outside_maharashtra", lang), ui="ask_location", trace=["Location check: not in Maharashtra, nothing searched"])
 
 
 def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: str, emergency: bool = False,
@@ -430,6 +486,10 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
 
     # The Maps suggestion must be an English query, not the translated label.
     maps_what = what_label(spec.key, "en")
+
+    # Maharashtra only: a PIN outside the state is refused before anything is searched.
+    if pin and not is_maharashtra_pin(pin):
+        return _outside_reply(user_id, spec, emergency, lang)
 
     # Whatever happens next, the flow is no longer "waiting for a location":
     # remember what the user told us and reset the step.
@@ -448,7 +508,8 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
                 if not is_configured():
                     logger.warning("PLACES_PROVIDER=google but GOOGLE_PLACES_API_KEY is not set")
                     if not local:
-                        return _reply(tr("search_not_configured", lang, what=maps_what, where=where), ui="notice")
+                        text = tr("search_not_configured", lang, what=maps_what, where=where)
+                        return _demo_only_reply(user_id, spec, pin, locality, lang, text) if _demo_enabled() else _reply(text, ui="notice")
                 else:
                     raw = search_places_checked(
                         _build_query(spec, pin, locality, emergency),
@@ -463,10 +524,14 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
                 save_care_state(user_id, {**state, "stage": "awaiting_location", "specialty": spec.key, "emergency": emergency, "facilities": []})
                 return _reply(tr("ask_clarify_location", lang), ui="ask_location")
 
+        except OutsideMaharashtra:
+            return _outside_reply(user_id, spec, emergency, lang)
+
         except PlacesUnavailable as exc:
             logger.warning("facility search unavailable (%s): %s", provider, exc)
             if not local:
-                return _reply(tr("search_unavailable", lang, what=maps_what, where=where), ui="notice")
+                text = tr("search_unavailable", lang, what=maps_what, where=where)
+                return _demo_only_reply(user_id, spec, pin, locality, lang, text) if _demo_enabled() else _reply(text, ui="notice")
 
     # PIN-matching map results first, then the verified entries are put in front of them.
     if pin:
@@ -485,16 +550,25 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
     cleaned = cleaned[:MAX_RESULTS]
 
     if not cleaned:
+        text = tr("no_results", lang, what=what, where=where)
+        if _demo_enabled():
+            return _demo_only_reply(user_id, spec, pin, locality, lang, text)
         save_care_state(user_id, {**state, "stage": "none", "facilities": [], "specialty": spec.key, "pin": pin, "locality": locality})
-        return _reply(tr("no_results", lang, what=what, where=where), ui="notice")
+        return _reply(text, ui="notice")
 
-    facilities = [_facility_record(i, place, spec) for i, place in enumerate(cleaned, start=1)]
+    facilities = [_facility_record(i, place, spec, area=where) for i, place in enumerate(cleaned, start=1)]
     _lookup_bookings(facilities)
 
     # A booking page the owner verified beats anything the website scan found.
     for fac, place in zip(facilities, cleaned):
         if place.get("booking_url"):
             fac["booking"] = {"status": "found", "url": place["booking_url"], "external_provider": False, "provider_host": None}
+
+    real_count = len(facilities)
+    if _demo_enabled():
+        demo = _facility_record(len(facilities) + 1, _demo_place(), spec, area=where)
+        demo["booking"] = asdict(BookingInfo(status="no_website"))
+        facilities.append(demo)
 
     save_care_state(user_id, {
         "stage": "results",
@@ -504,9 +578,15 @@ def _run_search(user_id: str, state: dict, spec_key: str, pin, locality, lang: s
         "facilities": facilities,
     })
 
-    logger.info("care search: specialty=%s results=%d", spec.key, len(facilities))
+    logger.info("care search: specialty=%s results=%d", spec.key, real_count)
     source = facilities[0]["source"]
-    return _reply(_format_results(facilities, spec.key, where, lang, source), facilities=facilities, ui="facility_results")
+    trace = [
+        "Safety check: no emergency signs in your message",
+        f"Tool used: find {what} near {where} (Maharashtra only)",
+        f"Found {real_count} place{'s' if real_count != 1 else ''}, ranked nearest first",
+        "Waiting for you to choose a number",
+    ]
+    return _reply(_format_results(facilities, spec.key, where, lang, source), facilities=facilities, ui="facility_results", trace=trace)
 
 
 def _choose_specialty(text: str, state: dict):
@@ -587,9 +667,19 @@ def _online_only_reply(state: dict, facilities: List[dict], lang: str, contact_o
 # Booking assistance
 # ----------------------------------------------------------------------------
 
+_OFFER = "\n\nDo you want me to prepare an appointment request for this hospital? Reply YES or NO."
+
+
 def _booking_reply(fac: dict, lang: str) -> dict:
     name = fac["name"]
     booking = fac.get("booking") or {}
+
+    if fac.get("partner_demo"):
+        text = (f"{name}\n\nThis is a sandbox hospital made for this project. It can confirm a request instantly, "
+                "so you can see the whole booking flow. No real hospital is contacted." + _OFFER)
+        return _reply(text, facilities=[fac], ui="booking_link", quick=["Yes, request appointment", "No"],
+                      extra={"booking_url": None, "booking_verified": False},
+                      trace=[f"You chose hospital {fac['n']} (demo)", "Asking whether to prepare an appointment request"])
 
     # A cached "could not reach the site" deserves one retry now.
     if booking.get("status") in (None, "unreachable") and fac.get("website"):
@@ -599,13 +689,21 @@ def _booking_reply(fac: dict, lang: str) -> dict:
         except Exception:
             logger.exception("booking retry failed")
 
+    extra_lines = []
+    if fac.get("directions_url"):
+        extra_lines.append(f"Directions: {fac['directions_url']}")
+    if not fac.get("phone") and fac.get("phone_lookup_url"):
+        extra_lines.append(f"Phone number not listed in my map data. You can find it on its Google Maps page: {fac['phone_lookup_url']}")
+    tail = ("\n\n" + "\n".join(extra_lines) if extra_lines else "") + _OFFER
+
     if booking.get("status") == "found":
         if booking.get("external_provider"):
             head = tr("book_found_external", lang, name=name, url=booking["url"], host=booking.get("provider_host") or "")
         else:
             head = tr("book_found_own", lang, name=name, url=booking["url"])
-        text = head + "\n\n" + tr("book_steps", lang)
-        return _reply(text, facilities=[fac], ui="booking_link", extra={"booking_url": booking["url"], "booking_verified": True})
+        return _reply(head + tail, facilities=[fac], ui="booking_link", quick=["Yes, request appointment", "No"],
+                      extra={"booking_url": booking["url"], "booking_verified": True},
+                      trace=[f"You chose hospital {fac['n']}", "Found a booking page on the hospital's own website", "Asking whether to prepare an appointment request"])
 
     if fac.get("phone"):
         fallback = tr("book_fallback_phone", lang, phone=fac["phone"])
@@ -614,7 +712,9 @@ def _booking_reply(fac: dict, lang: str) -> dict:
     else:
         fallback = tr("book_fallback_none", lang)
 
-    return _reply(tr("book_not_found", lang, name=name, fallback=fallback), facilities=[fac], ui="booking_link", extra={"booking_url": None, "booking_verified": False})
+    return _reply(tr("book_not_found", lang, name=name, fallback=fallback) + tail, facilities=[fac], ui="booking_link",
+                  quick=["Yes, request appointment", "No"], extra={"booking_url": None, "booking_verified": False},
+                  trace=[f"You chose hospital {fac['n']}", "No verified online booking page found", "Asking whether to prepare an appointment request"])
 
 
 # ----------------------------------------------------------------------------
@@ -634,6 +734,21 @@ def handle(message: str, user_id: str, lang: str = "en") -> Optional[dict]:
     # 1. "I booked it" -- never claim confirmation.
     if is_booked_claim(text):
         return _reply(tr("booked_claim", lang))
+
+    # 1b. Appointment-request questions (yes/no, name, phone, age, date, reason, confirmation).
+    staged = appointment_flow.handle_stage(user_id, text, state)
+    if staged:
+        new_state, reply = staged
+        save_care_state(user_id, new_state)
+        return reply
+
+    # 1c. "my appointments" / "cancel appointment HA-XXXXXX" can arrive at any time.
+    if stage not in ("screening", "awaiting_location"):
+        glob = appointment_flow.handle_global(user_id, text, state)
+        if glob:
+            new_state, reply = glob
+            save_care_state(user_id, new_state)
+            return reply
 
     # 2. Waiting for the answer to the red-flag question.
     if stage == "screening":
@@ -703,7 +818,7 @@ def handle(message: str, user_id: str, lang: str = "en") -> Optional[dict]:
             chosen = facilities[idx - 1]
             reply = _booking_reply(chosen, lang)
             facilities[idx - 1] = chosen
-            save_care_state(user_id, {**state, "stage": "booking_link_sent", "facilities": facilities, "selected": idx})
+            save_care_state(user_id, {**state, "stage": "confirm_book", "facilities": facilities, "selected": idx})
             return reply
         else:
             search_from_booking = True                  # a new area was named: saved list is stale
@@ -716,7 +831,7 @@ def handle(message: str, user_id: str, lang: str = "en") -> Optional[dict]:
             if not 1 <= idx <= len(facilities):
                 return _reply(tr("book_bad_index", lang, n=len(facilities)), facilities=facilities, ui="facility_results")
             reply = _booking_reply(facilities[idx - 1], lang)
-            save_care_state(user_id, {**state, "stage": "booking_link_sent", "facilities": facilities, "selected": idx})
+            save_care_state(user_id, {**state, "stage": "confirm_book", "facilities": facilities, "selected": idx})
             return reply
 
     # 6. New facility search.
